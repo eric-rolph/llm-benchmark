@@ -142,3 +142,64 @@ tasks:
             raised = True
         assert raised, "pop on empty Stack should raise IndexError"
         print("PASS")
+
+  - id: code_009
+    category: coding
+    description: "Ancestry chain builder (novel graph problem)"
+    prompt: |
+      Write a Python function called `build_ancestry(pairs)` that takes a list of (parent, child) tuples
+      and returns a dict mapping each node to a list of ALL its ancestors (parent, grandparent, etc.)
+      in order from immediate parent to most distant ancestor.
+      Nodes with no ancestors map to an empty list.
+      Example: build_ancestry([("A","B"), ("B","C")]) -> {"A": [], "B": ["A"], "C": ["B", "A"]}
+      Return only the Python code with no explanation.
+    scoring:
+      type: code_exec
+      test_code: |
+        result = build_ancestry([("A", "B"), ("B", "C"), ("C", "D")])
+        assert result["A"] == [],          f"A: {result.get('A')}"
+        assert result["B"] == ["A"],       f"B: {result.get('B')}"
+        assert result["C"] == ["B", "A"],  f"C: {result.get('C')}"
+        assert result["D"] == ["C", "B", "A"], f"D: {result.get('D')}"
+        r2 = build_ancestry([("X", "Y"), ("P", "Q")])
+        assert r2["Y"] == ["X"], f"Y: {r2.get('Y')}"
+        assert r2["Q"] == ["P"], f"Q: {r2.get('Q')}"
+        assert r2["X"] == [],    f"X: {r2.get('X')}"
+        print("PASS")
+
+  - id: code_010
+    category: coding
+    description: "Run-length encoding"
+    prompt: |
+      Write a Python function called `run_length_encode(s)` that returns a list of (char, count) tuples
+      representing the run-length encoding of string s.
+      Example: run_length_encode("aaabbc") -> [("a", 3), ("b", 2), ("c", 1)]
+      An empty string returns an empty list.
+      Return only the Python code with no explanation.
+    scoring:
+      type: code_exec
+      test_code: |
+        assert run_length_encode("aaabbc")  == [("a", 3), ("b", 2), ("c", 1)]
+        assert run_length_encode("abcde")   == [("a", 1), ("b", 1), ("c", 1), ("d", 1), ("e", 1)]
+        assert run_length_encode("aaaa")    == [("a", 4)]
+        assert run_length_encode("")        == []
+        assert run_length_encode("aabbcc")  == [("a", 2), ("b", 2), ("c", 2)]
+        print("PASS")
+
+  - id: code_011
+    category: coding
+    description: "Rotate square matrix 90 degrees clockwise"
+    prompt: |
+      Write a Python function called `rotate_matrix(matrix)` that rotates a square matrix
+      90 degrees clockwise and returns the rotated matrix (do not modify in-place; return a new matrix).
+      Input is guaranteed to be a non-empty square matrix of integers.
+      Return only the Python code with no explanation.
+    scoring:
+      type: code_exec
+      test_code: |
+        assert rotate_matrix([[1,2,3],[4,5,6],[7,8,9]]) == [[7,4,1],[8,5,2],[9,6,3]]
+        assert rotate_matrix([[1,2],[3,4]])              == [[3,1],[4,2]]
+        assert rotate_matrix([[42]])                     == [[42]]
+        assert rotate_matrix([[1,2,3,4],[5,6,7,8],[9,10,11,12],[13,14,15,16]]) == \
+               [[13,9,5,1],[14,10,6,2],[15,11,7,3],[16,12,8,4]]
+        print("PASS")

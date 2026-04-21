@@ -5,6 +5,10 @@ Scoring types:
   numeric          — extract first number, compare with optional tolerance
   exact            — stripped case-insensitive equality
   contains         — substring check (case-insensitive)
+  contains_n       — substring must appear at least N times (min_count)
+  not_contains     — list of forbidden strings must all be absent
+  ends_with        — last non-empty line's last word matches answer
+  word_count       — word count must fall within [min, max]
   regex            — regex search
   json_keys        — parse JSON object, verify required keys exist
   line_count       — count non-empty lines, compare to expected
@@ -47,6 +51,10 @@ def score_response(task: dict, run_result: dict, allow_code_exec: bool = False) 
         "numeric":      _score_numeric,
         "exact":        _score_exact,
         "contains":     _score_contains,
+        "contains_n":   _score_contains_n,
+        "not_contains": _score_not_contains,
+        "ends_with":    _score_ends_with,
+        "word_count":   _score_word_count,
         "regex":        _score_regex,
         "json_keys":    _score_json_keys,
         "line_count":   _score_line_count,
@@ -127,6 +135,45 @@ def _score_contains(response: str, scoring: dict):
     if needle in response.lower():
         return 1.0, f"Contains '{raw}'"
     return 0.0, f"Missing '{raw}'"
+
+
+def _score_contains_n(response: str, scoring: dict):
+    needle = str(scoring.get("answer", scoring.get("value", ""))).lower()
+    min_count = int(scoring.get("min_count", 1))
+    count = response.lower().count(needle)
+    if count >= min_count:
+        return 1.0, f"'{needle}' appears {count}x (min {min_count})"
+    return 0.0, f"'{needle}' appears {count}x, need at least {min_count}"
+
+
+def _score_not_contains(response: str, scoring: dict):
+    forbidden = [str(f).lower() for f in scoring.get("forbidden", [])]
+    found = [f for f in forbidden if f in response.lower()]
+    if not found:
+        return 1.0, "No forbidden words found"
+    return 0.0, f"Forbidden words found: {found}"
+
+
+def _score_ends_with(response: str, scoring: dict):
+    expected = str(scoring.get("answer", scoring.get("value", ""))).strip().lower()
+    lines = [ln.strip() for ln in response.strip().split("\n") if ln.strip()]
+    if not lines:
+        return 0.0, "Empty response"
+    last_line = lines[-1].rstrip(".,!?;:").lower()
+    last_word = last_line.split()[-1] if last_line.split() else ""
+    if last_word == expected:
+        return 1.0, f"Response ends with '{expected}'"
+    return 0.0, f"Last word: '{last_word}', expected '{expected}'"
+
+
+def _score_word_count(response: str, scoring: dict):
+    words = response.strip().split()
+    count = len(words)
+    min_w = int(scoring.get("min", 0))
+    max_w = int(scoring.get("max", 10 ** 9))
+    if min_w <= count <= max_w:
+        return 1.0, f"{count} words (required {min_w}–{max_w})"
+    return 0.0, f"{count} words, required {min_w}–{max_w}"
 
 
 def _score_regex(response: str, scoring: dict):

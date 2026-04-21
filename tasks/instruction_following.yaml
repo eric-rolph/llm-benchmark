@@ -64,3 +64,77 @@ tasks:
     scoring:
       type: contains
       answer: "December"
+
+  - id: instruct_009
+    category: instruction_following
+    description: "Word count constraint — 50 to 70 words"
+    prompt: |
+      Write a single paragraph explaining what photosynthesis is.
+      Your response must contain between 50 and 70 words.
+      No headers, bullet points, or lists — just a single prose paragraph.
+    scoring:
+      type: word_count
+      min: 50
+      max: 70
+
+  - id: instruct_010
+    category: instruction_following
+    description: "Keyword repetition — 'network' at least 3 times"
+    prompt: |
+      Explain what the internet is in 2-4 sentences.
+      You must use the word 'network' at least 3 times.
+    scoring:
+      type: contains_n
+      answer: "network"
+      min_count: 3
+
+  - id: instruct_011
+    category: instruction_following
+    description: "Forbidden words — no 'pet', 'friend', or 'loyal'"
+    prompt: |
+      Describe what a dog is in exactly 2 sentences.
+      Do not use the words 'pet', 'friend', or 'loyal' anywhere in your response.
+    scoring:
+      type: not_contains
+      forbidden: ["pet", "friend", "loyal"]
+
+  - id: instruct_012
+    category: instruction_following
+    description: "Response must end with a specific word"
+    prompt: |
+      Write one sentence about what makes the ocean important to life on Earth.
+      The very last word of your response must be 'ocean'.
+    scoring:
+      type: ends_with
+      answer: "ocean"
+
+  - id: instruct_013
+    category: instruction_following
+    description: "Exactly 6 dash-prefixed bullet points"
+    prompt: |
+      List exactly 6 countries in Europe, one per line, each prefixed with a dash (e.g. "- France").
+      No introduction, no explanation, no numbering — just the 6 dash-prefixed country names.
+    scoring:
+      type: line_count
+      count: 6
+
+  - id: instruct_014
+    category: instruction_following
+    description: "JSON output with three required keys for a city"
+    prompt: |
+      Respond in valid JSON only — no markdown fences, no explanation.
+      Return an object with exactly these keys: "city" (string), "country" (string), "population_millions" (number).
+      Use Tokyo, Japan as the subject.
+    scoring:
+      type: json_keys
+      keys: ["city", "country", "population_millions"]
+
+  - id: instruct_015
+    category: instruction_following
+    description: "No hedging/apology language in direct factual answer"
+    prompt: |
+      What is the boiling point of water at sea level in Celsius?
+      Answer with only the number. Do not include any apology, hedging, or AI disclaimer.
+    scoring:
+      type: not_contains
+      forbidden: ["sorry", "cannot", "as an ai", "i apologize", "unable", "i'm not"]

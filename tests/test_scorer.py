@@ -111,6 +111,130 @@ class TestContains:
         assert s == 1.0
 
 
+# ── contains_n ────────────────────────────────────────────────────────────────
+
+class TestContainsN:
+    def test_meets_min_exactly(self):
+        s, _ = score({"type": "contains_n", "answer": "network", "min_count": 3},
+                     "The network connects to another network via a third network.")
+        assert s == 1.0
+
+    def test_exceeds_min(self):
+        s, _ = score({"type": "contains_n", "answer": "cat", "min_count": 2},
+                     "A cat sat near another cat and yet another cat.")
+        assert s == 1.0
+
+    def test_below_min(self):
+        s, d = score({"type": "contains_n", "answer": "network", "min_count": 3},
+                     "This is a network.")
+        assert s == 0.0
+        assert "1" in d
+
+    def test_zero_occurrences(self):
+        s, _ = score({"type": "contains_n", "answer": "quantum", "min_count": 1},
+                     "Nothing relevant here.")
+        assert s == 0.0
+
+    def test_default_min_count_one(self):
+        s, _ = score({"type": "contains_n", "answer": "hello"}, "Just say hello.")
+        assert s == 1.0
+
+
+# ── not_contains ──────────────────────────────────────────────────────────────
+
+class TestNotContains:
+    def test_all_absent(self):
+        s, _ = score({"type": "not_contains", "forbidden": ["sorry", "cannot"]},
+                     "The boiling point is 100.")
+        assert s == 1.0
+
+    def test_one_present(self):
+        s, d = score({"type": "not_contains", "forbidden": ["sorry", "cannot"]},
+                     "I cannot provide that information.")
+        assert s == 0.0
+        assert "cannot" in d
+
+    def test_multiple_present(self):
+        s, d = score({"type": "not_contains", "forbidden": ["pet", "friend", "loyal"]},
+                     "Dogs are loyal pets and friendly companions.")
+        assert s == 0.0
+        assert len([f for f in ["pet", "loyal"] if f in d]) > 0
+
+    def test_case_insensitive(self):
+        s, d = score({"type": "not_contains", "forbidden": ["sorry"]},
+                     "SORRY, I can't help.")
+        assert s == 0.0
+
+    def test_empty_forbidden_list(self):
+        s, _ = score({"type": "not_contains", "forbidden": []}, "Any response here.")
+        assert s == 1.0
+
+
+# ── ends_with ─────────────────────────────────────────────────────────────────
+
+class TestEndsWith:
+    def test_last_word_matches(self):
+        s, _ = score({"type": "ends_with", "answer": "ocean"},
+                     "Life on Earth depends on the ocean.")
+        assert s == 1.0
+
+    def test_last_word_wrong(self):
+        s, d = score({"type": "ends_with", "answer": "ocean"},
+                     "Life on Earth depends on the sea.")
+        assert s == 0.0
+        assert "sea" in d
+
+    def test_trailing_punctuation_stripped(self):
+        s, _ = score({"type": "ends_with", "answer": "ocean"},
+                     "The most important body of water is the ocean!")
+        assert s == 1.0
+
+    def test_multiline_uses_last_line(self):
+        s, _ = score({"type": "ends_with", "answer": "ocean"},
+                     "Some intro text.\nThe key resource is the ocean.")
+        assert s == 1.0
+
+    def test_empty_response(self):
+        s, d = score({"type": "ends_with", "answer": "ocean"}, "")
+        assert s == 0.0
+        assert "Empty" in d
+
+
+# ── word_count ────────────────────────────────────────────────────────────────
+
+class TestWordCount:
+    def test_within_range(self):
+        text = " ".join(["word"] * 60)
+        s, d = score({"type": "word_count", "min": 50, "max": 70}, text)
+        assert s == 1.0
+        assert "60" in d
+
+    def test_below_min(self):
+        text = " ".join(["word"] * 30)
+        s, _ = score({"type": "word_count", "min": 50, "max": 70}, text)
+        assert s == 0.0
+
+    def test_above_max(self):
+        text = " ".join(["word"] * 100)
+        s, _ = score({"type": "word_count", "min": 50, "max": 70}, text)
+        assert s == 0.0
+
+    def test_exactly_at_min(self):
+        text = " ".join(["word"] * 50)
+        s, _ = score({"type": "word_count", "min": 50, "max": 70}, text)
+        assert s == 1.0
+
+    def test_exactly_at_max(self):
+        text = " ".join(["word"] * 70)
+        s, _ = score({"type": "word_count", "min": 50, "max": 70}, text)
+        assert s == 1.0
+
+    def test_only_min_specified(self):
+        text = " ".join(["word"] * 10)
+        s, _ = score({"type": "word_count", "min": 5}, text)
+        assert s == 1.0
+
+
 # ── regex ─────────────────────────────────────────────────────────────────────
 
 class TestRegex:
