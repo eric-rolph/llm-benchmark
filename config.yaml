@@ -1,0 +1,54 @@
+# ─────────────────────────────────────────────────────────────────────────────
+#  LLM Benchmark Suite — config.yaml
+#  Run: python run.py --discover   to probe backends and list found models
+#  Run: python run.py --help       for all CLI flags
+# ─────────────────────────────────────────────────────────────────────────────
+
+backends:
+  # LM Studio  ─────────────────────────────────────────────────────────────
+  lm_studio:
+    enabled: true
+    name: "LM Studio"
+    base_url: "http://localhost:1234/v1"
+    api_key: "lm-studio"        # LM Studio accepts any non-empty key
+    auto_discover: true         # Enumerate /v1/models on startup
+    auto_load: true             # Use /api/v0/models/load before each model
+
+  # Ollama  ─────────────────────────────────────────────────────────────────
+  ollama:
+    enabled: false              # Set true when Ollama is running
+    name: "Ollama"
+    base_url: "http://localhost:11434"
+    auto_discover: true         # Queries /api/tags
+    thinking: false             # Set true to send think=true for supported models
+
+  # llama.cpp server  ───────────────────────────────────────────────────────
+  llamacpp:
+    enabled: false              # Set true when llama-server is running
+    name: "llama.cpp"
+    base_url: "http://localhost:8080"
+    auto_discover: true         # Queries /v1/models
+
+# Optional manual model list.  Leave empty [] to rely on auto-discovery.
+# Format:  "model-id"  (bare string, matched against any enabled backend)
+# If populated, only these models are benchmarked (others from discovery skipped).
+models: []
+# models:
+#   - "qwen/qwen3.6-35b-a3b"
+#   - "google/gemma-4-31b"
+#   - "google/gemma-4-26b-a4b"
+#   - "nvidia.nemotron-cascade-2-30b-a3b"
+#   - "qwen3.5-27b-claude-4.6-opus-reasoning-distilled"
+#   - "llama3.2:latest"          # Ollama-style
+#   - "qwen3:8b"                 # Ollama-style
+
+benchmark:
+  temperature: 0.0       # Deterministic — required for reproducible scoring
+  max_tokens: 4096       # Must be large enough for thinking models (Qwen3, Kimi, etc.)
+  timeout: 180           # Seconds before a single request is abandoned
+  runs_per_task: 1       # Set to 3 for statistically reliable TPS numbers
+
+# LLM-as-judge (for tasks with scoring.type: llm_judge)
+judge:
+  enabled: false         # Set true and re-run to score subjective tasks
+  model: null            # null = use first discovered model

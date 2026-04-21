@@ -1,0 +1,97 @@
+# tasks/writing.yaml — Instruction-constrained writing tasks
+# Tests: format compliance, brevity, tone, structure
+# Scoring: line_count, contains, regex
+
+- id: haiku_nature
+  category: writing
+  prompt: |
+    Write a haiku about nature. A haiku has exactly 3 lines.
+    Output only the haiku, nothing else.
+  scoring:
+    type: line_count
+    value: 3
+
+- id: email_subject_line
+  category: writing
+  prompt: |
+    Write a professional email subject line for requesting a meeting to discuss Q3 budget.
+    Output only the subject line, no extra text.
+  scoring:
+    type: regex
+    pattern: "(?i)(meeting|budget|q3|discuss|request)"
+
+- id: bullet_list_5
+  category: writing
+  prompt: |
+    List exactly 5 benefits of regular exercise.
+    Format: one benefit per line, each starting with a dash (-).
+    Output only the list, nothing else.
+  scoring:
+    type: line_count
+    value: 5
+
+- id: one_sentence_summary_ai
+  category: writing
+  prompt: |
+    Summarize what artificial intelligence is in exactly one sentence.
+    Output only that sentence, nothing else.
+  scoring:
+    type: line_count
+    value: 1
+
+- id: tweet_length
+  category: writing
+  prompt: |
+    Write a tweet (max 280 characters) announcing a new product launch for a smart water bottle.
+    Output only the tweet text.
+  scoring:
+    type: regex
+    pattern: "(?i)(bottle|water|smart|launch|new|product)"
+
+- id: numbered_steps
+  category: writing
+  prompt: |
+    Give exactly 4 steps for making a cup of tea.
+    Format: numbered list (1. 2. 3. 4.)
+    Output only the 4 steps.
+  scoring:
+    type: line_count
+    value: 4
+
+- id: apology_email_formal
+  category: writing
+  prompt: |
+    Write a one-paragraph formal apology email for missing a deadline.
+    The paragraph must mention: the missed deadline, an apology, and a commitment to deliver.
+    Output only the paragraph.
+  scoring:
+    type: regex
+    pattern: "(?i)(apologize|sorry|apolog|deadline|commit|deliver|regret)"
+
+- id: product_description_50_words
+  category: writing
+  prompt: |
+    Write a product description for wireless noise-cancelling headphones in exactly 2 sentences.
+    Output only the 2 sentences.
+  scoring:
+    type: line_count
+    value: 2
+
+- id: pros_cons_list
+  category: writing
+  prompt: |
+    List 3 pros and 3 cons of working from home.
+    Use "Pros:" and "Cons:" as section headers.
+    Output only the list.
+  scoring:
+    type: regex
+    pattern: "(?i)(pros?|cons?)"
+
+- id: word_count_constraint
+  category: writing
+  prompt: |
+    Explain what a blockchain is in exactly 3 sentences.
+    Output only those 3 sentences, nothing else.
+  scoring:
+    type: line_count
+    value: 3

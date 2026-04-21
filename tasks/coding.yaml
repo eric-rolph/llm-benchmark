@@ -1,0 +1,144 @@
+tasks:
+  - id: code_001
+    category: coding
+    description: "Fibonacci function"
+    prompt: |
+      Write a Python function called `fibonacci(n)` that returns the nth Fibonacci number (0-indexed).
+      fibonacci(0) = 0, fibonacci(1) = 1, fibonacci(2) = 1, fibonacci(10) = 55.
+      Return only the Python code with no explanation.
+    scoring:
+      type: code_exec
+      test_code: |
+        assert fibonacci(0) == 0,  f"fibonacci(0): expected 0, got {fibonacci(0)}"
+        assert fibonacci(1) == 1,  f"fibonacci(1): expected 1, got {fibonacci(1)}"
+        assert fibonacci(2) == 1,  f"fibonacci(2): expected 1, got {fibonacci(2)}"
+        assert fibonacci(10) == 55, f"fibonacci(10): expected 55, got {fibonacci(10)}"
+        assert fibonacci(15) == 610, f"fibonacci(15): expected 610, got {fibonacci(15)}"
+        print("PASS")
+
+  - id: code_002
+    category: coding
+    description: "Palindrome checker"
+    prompt: |
+      Write a Python function called `is_palindrome(s)` that returns True if string s is a palindrome.
+      The check must be case-insensitive. Spaces are significant (do not strip them).
+      Return only the Python code with no explanation.
+    scoring:
+      type: code_exec
+      test_code: |
+        assert is_palindrome("racecar") == True
+        assert is_palindrome("Racecar") == True
+        assert is_palindrome("hello")   == False
+        assert is_palindrome("abcba")   == True
+        assert is_palindrome("a")       == True
+        print("PASS")
+
+  - id: code_003
+    category: coding
+    description: "Vowel counter"
+    prompt: |
+      Write a Python function called `count_vowels(s)` that counts the vowels (a, e, i, o, u) in string s (case-insensitive).
+      Return only the Python code with no explanation.
+    scoring:
+      type: code_exec
+      test_code: |
+        assert count_vowels("hello")       == 2, f"got {count_vowels('hello')}"
+        assert count_vowels("AEIOU")       == 5, f"got {count_vowels('AEIOU')}"
+        assert count_vowels("rhythm")      == 0, f"got {count_vowels('rhythm')}"
+        assert count_vowels("Programming") == 3, f"got {count_vowels('Programming')}"
+        print("PASS")
+
+  - id: code_004
+    category: coding
+    description: "Binary search"
+    prompt: |
+      Write a Python function called `binary_search(arr, target)` that returns the index of target in the sorted list arr, or -1 if not found.
+      Return only the Python code with no explanation.
+    scoring:
+      type: code_exec
+      test_code: |
+        assert binary_search([1, 3, 5, 7, 9, 11], 7)  == 3
+        assert binary_search([1, 3, 5, 7, 9, 11], 6)  == -1
+        assert binary_search([2], 2)                   == 0
+        assert binary_search([], 1)                    == -1
+        assert binary_search([1, 2, 3, 4, 5], 1)      == 0
+        print("PASS")
+
+  - id: code_005
+    category: coding
+    description: "Flatten nested list one level"
+    prompt: |
+      Write a Python function called `flatten(lst)` that flattens a nested list exactly one level deep.
+      Example: flatten([[1, 2], [3, 4], [5]]) returns [1, 2, 3, 4, 5].
+      Return only the Python code with no explanation.
+    scoring:
+      type: code_exec
+      test_code: |
+        assert flatten([[1, 2], [3, 4], [5]])  == [1, 2, 3, 4, 5]
+        assert flatten([[], [1], [2, 3]])       == [1, 2, 3]
+        assert flatten([[1, 2, 3]])             == [1, 2, 3]
+        assert flatten([])                      == []
+        print("PASS")
+
+  - id: code_006
+    category: coding
+    description: "Caesar cipher"
+    prompt: |
+      Write a Python function called `caesar_cipher(text, shift)` that applies a Caesar cipher.
+      Only shift alphabetic characters; preserve case and leave non-alphabetic characters unchanged.
+      The shift wraps around (z + 1 = a).
+      Return only the Python code with no explanation.
+    scoring:
+      type: code_exec
+      test_code: |
+        assert caesar_cipher("Hello, World!", 3) == "Khoor, Zruog!"
+        assert caesar_cipher("abc", 1)           == "bcd"
+        assert caesar_cipher("xyz", 3)           == "abc"
+        assert caesar_cipher("ABC", 25)          == "ZAB"
+        assert caesar_cipher("Hello!", 0)        == "Hello!"
+        print("PASS")
+
+  - id: code_007
+    category: coding
+    description: "Word frequency counter"
+    prompt: |
+      Write a Python function called `word_frequency(text)` that splits text on whitespace and returns a dict mapping each unique word (lowercased) to its count.
+      Return only the Python code with no explanation.
+    scoring:
+      type: code_exec
+      test_code: |
+        result = word_frequency("the cat sat on the mat the cat")
+        assert result["the"] == 3,   f"the: {result.get('the')}"
+        assert result["cat"] == 2,   f"cat: {result.get('cat')}"
+        assert result["sat"] == 1,   f"sat: {result.get('sat')}"
+        assert result["mat"] == 1,   f"mat: {result.get('mat')}"
+        assert result["on"]  == 1,   f"on:  {result.get('on')}"
+        print("PASS")
+
+  - id: code_008
+    category: coding
+    description: "Stack class"
+    prompt: |
+      Write a Python class called `Stack` with three methods:
+        push(item)  — add item to the top
+        pop()       — remove and return the top item; raise IndexError if empty
+        is_empty()  — return True if the stack has no items
+      Return only the Python code with no explanation.
+    scoring:
+      type: code_exec
+      test_code: |
+        s = Stack()
+        assert s.is_empty() == True
+        s.push(10)
+        s.push(20)
+        assert s.is_empty() == False
+        assert s.pop() == 20
+        assert s.pop() == 10
+        assert s.is_empty() == True
+        raised = False
+        try:
+            s.pop()
+        except IndexError:
+            raised = True
+        assert raised, "pop on empty Stack should raise IndexError"
+        print("PASS")

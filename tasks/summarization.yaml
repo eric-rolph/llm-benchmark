@@ -1,0 +1,130 @@
+# tasks/summarization.yaml — Condense and extract information accurately
+# Tests: reading comprehension, key point extraction, conciseness
+# Scoring: contains, regex, line_count
+
+- id: summarize_paragraph_business
+  category: summarization
+  prompt: |
+    Summarize the following paragraph in one sentence:
+
+    "The company reported record-breaking quarterly revenue of $4.2 billion, 
+    exceeding analyst expectations by 12%. The growth was primarily driven by 
+    strong performance in the cloud services division, which saw a 34% year-over-year 
+    increase. The CEO attributed the success to strategic investments made in 2023 
+    and announced plans to expand the product portfolio in the coming year."
+
+    Output only the summary sentence.
+  scoring:
+    type: line_count
+    value: 1
+
+- id: extract_key_numbers
+  category: summarization
+  prompt: |
+    From the following text, extract all monetary values mentioned.
+    List each on a separate line with no extra text.
+
+    "The startup raised $5 million in seed funding in 2022. They followed this with 
+    a Series A round of $22 million in 2023. The company's current valuation stands 
+    at approximately $150 million, and they plan to raise $40 million in their 
+    upcoming Series B."
+  scoring:
+    type: regex
+    pattern: "(?i)(\\$5|5 million|\\$22|22 million|\\$150|150 million|\\$40|40 million)"
+
+- id: tldr_article
+  category: summarization
+  prompt: |
+    Write a TL;DR (Too Long; Didn't Read) summary of this passage in one sentence:
+
+    "Climate scientists have documented a significant increase in average global 
+    temperatures over the past century, with the most dramatic changes occurring 
+    in the last three decades. Rising sea levels, more frequent extreme weather 
+    events, and disrupted ecosystems are among the documented consequences. 
+    International agreements such as the Paris Accord aim to limit warming to 
+    1.5 degrees Celsius above pre-industrial levels by reducing greenhouse gas 
+    emissions globally."
+
+    Output only the TL;DR sentence, starting with "TL;DR:"
+  scoring:
+    type: contains
+    value: "tl;dr"
+
+- id: extract_action_items
+  category: summarization
+  prompt: |
+    Extract the action items from this meeting note. List each as a bullet point starting with "-".
+
+    "Meeting Notes — Project Alpha:
+    John will finalize the design mockups by Friday. Sarah needs to review the 
+    technical requirements document and send her feedback by end of day Wednesday. 
+    The team agreed that Mike should schedule a follow-up meeting with the client 
+    for next week. Lisa will update the project timeline in the shared drive today."
+  scoring:
+    type: regex
+    pattern: "(?i)(john|sarah|mike|lisa|design|mockup|requirement|schedule|timeline)"
+
+- id: headline_from_article
+  category: summarization
+  prompt: |
+    Write a single news headline (one line, no period at the end) for this story:
+
+    "Researchers at Stanford University have developed a new battery technology 
+    that charges smartphones to 80% capacity in under five minutes. The solid-state 
+    battery uses a novel lithium-metal anode that dramatically improves charge speed 
+    while maintaining safety. Commercial production is expected to begin within 
+    three years."
+
+    Output only the headline.
+  scoring:
+    type: regex
+    pattern: "(?i)(battery|charg|stanford|smartphone|five minutes|fast|rapid|new)"
+
+- id: main_point_philosophy
+  category: summarization
+  prompt: |
+    In one sentence, state the main argument of this passage:
+
+    "Socrates believed that the unexamined life is not worth living. For him, 
+    philosophy was not merely an academic exercise but a moral imperative. 
+    True wisdom begins with recognizing the limits of one's own knowledge — 
+    a concept he demonstrated through the Socratic method of questioning. 
+    By engaging others in dialogue, he forced them to confront the contradictions 
+    in their beliefs, believing this process of self-examination was the foundation 
+    of a just and virtuous life."
+
+    Output only that single sentence.
+  scoring:
+    type: line_count
+    value: 1
+
+- id: condense_to_3_bullets
+  category: summarization
+  prompt: |
+    Condense the following into exactly 3 bullet points, each starting with "-":
+
+    "Remote work has fundamentally changed how companies operate. Many employees 
+    report higher productivity and better work-life balance when working from home. 
+    However, challenges include feelings of isolation, difficulty collaborating, 
+    and blurred boundaries between professional and personal life. Companies have 
+    responded by adopting hybrid models, investing in collaboration tools, and 
+    rethinking office space requirements. Some studies suggest that fully remote 
+    teams can struggle with innovation due to reduced spontaneous interactions."
+
+    Output only the 3 bullet points.
+  scoring:
+    type: line_count
+    value: 3
+
+- id: identify_topic_sentence
+  category: summarization
+  prompt: |
+    What is the main topic of this paragraph? Answer in 5 words or fewer.
+
+    "Photosynthesis is the process by which plants, algae, and some bacteria convert 
+    sunlight, water, and carbon dioxide into glucose and oxygen. This biochemical 
+    process occurs primarily in chloroplasts and is essential for life on Earth, 
+    as it forms the base of most food chains and produces the oxygen we breathe."
+  scoring:
+    type: contains
+    value: "photosynthesis"

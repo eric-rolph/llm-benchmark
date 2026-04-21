@@ -1,0 +1,116 @@
+# tasks/knowledge.yaml — World knowledge, factual recall
+# Scoring: contains (case-insensitive substring match)
+# Goal: test factual accuracy and recall
+
+- id: capital_france
+  category: knowledge
+  prompt: "What is the capital of France? Answer with just the city name."
+  scoring:
+    type: contains
+    value: "paris"
+
+- id: capital_japan
+  category: knowledge
+  prompt: "What is the capital of Japan? Answer with just the city name."
+  scoring:
+    type: contains
+    value: "tokyo"
+
+- id: capital_brazil
+  category: knowledge
+  prompt: "What is the capital of Brazil? Answer with just the city name."
+  scoring:
+    type: contains
+    value: "brasilia"
+
+- id: element_gold
+  category: knowledge
+  prompt: "What is the chemical symbol for gold? Answer with just the symbol."
+  scoring:
+    type: exact
+    value: "Au"
+
+- id: element_iron
+  category: knowledge
+  prompt: "What is the chemical symbol for iron? Answer with just the symbol."
+  scoring:
+    type: exact
+    value: "Fe"
+
+- id: speed_of_light
+  category: knowledge
+  prompt: "What is the approximate speed of light in a vacuum in km/s? Give just the number (round to nearest 1000)."
+  scoring:
+    type: numeric
+    value: 300000
+    tolerance: 5000
+
+- id: human_chromosomes
+  category: knowledge
+  prompt: "How many chromosomes does a typical human have? Answer with just the number."
+  scoring:
+    type: numeric
+    value: 46
+    tolerance: 0
+
+- id: planet_count
+  category: knowledge
+  prompt: "How many planets are in our solar system? Answer with just the number."
+  scoring:
+    type: numeric
+    value: 8
+    tolerance: 0
+
+- id: shakespeare_hamlet
+  category: knowledge
+  prompt: "Who wrote the play Hamlet? Answer with just the author's name."
+  scoring:
+    type: contains
+    value: "shakespeare"
+
+- id: water_boiling_point
+  category: knowledge
+  prompt: "At standard atmospheric pressure, at what temperature (Celsius) does water boil? Answer with just the number."
+  scoring:
+    type: numeric
+    value: 100
+    tolerance: 0
+
+- id: moon_distance
+  category: knowledge
+  prompt: "Approximately how far is the Moon from Earth in kilometers? Give a number between 350000 and 410000."
+  scoring:
+    type: numeric
+    value: 384400
+    tolerance: 30000
+
+- id: world_war_2_end
+  category: knowledge
+  prompt: "In what year did World War II end? Answer with just the year."
+  scoring:
+    type: numeric
+    value: 1945
+    tolerance: 0
+
+- id: dna_bases
+  category: knowledge
+  prompt: "How many unique nitrogenous bases are in DNA? Answer with just the number."
+  scoring:
+    type: numeric
+    value: 4
+    tolerance: 0
+
+- id: largest_ocean
+  category: knowledge
+  prompt: "What is the largest ocean on Earth? Answer with just the ocean name."
+  scoring:
+    type: contains
+    value: "pacific"
+
+- id: gravity_ms2
+  category: knowledge
+  prompt: "What is the approximate acceleration due to gravity on Earth's surface in m/s²? Answer with just the number."
+  scoring:
+    type: numeric
+    value: 9.8
+    tolerance: 0.2

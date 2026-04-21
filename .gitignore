@@ -1,0 +1,9 @@
+.venv/
+results/
+__pycache__/
+*.pyc
+*.pyo
+.env
+
+# If you use real API keys in config.yaml, add it here:
+# config.yaml

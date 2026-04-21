@@ -1,0 +1,66 @@
+tasks:
+  - id: instruct_001
+    category: instruction_following
+    description: "Count letters in word"
+    prompt: "How many letters are in the word MISSISSIPPI? Reply with only the number."
+    scoring:
+      type: numeric
+      answer: 11
+      tolerance: 0
+
+  - id: instruct_002
+    category: instruction_following
+    description: "Count specific character"
+    prompt: "Count the letter 'r' in the word 'strawberry'. Reply with only the number."
+    scoring:
+      type: numeric
+      answer: 3
+      tolerance: 0
+
+  - id: instruct_003
+    category: instruction_following
+    description: "String reversal"
+    prompt: "Reverse the string 'benchmark'. Reply with only the reversed string and nothing else."
+    scoring:
+      type: exact
+      answer: "kramhcneb"
+
+  - id: instruct_004
+    category: instruction_following
+    description: "JSON structured output"
+    prompt: "Respond in valid JSON only — no markdown, no explanation. Include exactly these keys: 'capital' (string) and 'population_millions' (number) for the country France."
+    scoring:
+      type: json_keys
+      keys: ["capital", "population_millions"]
+
+  - id: instruct_005
+    category: instruction_following
+    description: "Translation"
+    prompt: "Translate 'Good morning, how are you?' to Spanish. Respond with only the translation and nothing else."
+    scoring:
+      type: contains
+      answer: "buenos"
+
+  - id: instruct_006
+    category: instruction_following
+    description: "Chemical symbol recall"
+    prompt: "What is the chemical symbol for gold? Reply with only the two-letter symbol and nothing else."
+    scoring:
+      type: exact
+      answer: "Au"
+
+  - id: instruct_007
+    category: instruction_following
+    description: "Exact list length"
+    prompt: "List exactly 5 fruits, one per line. Use only the fruit names — no numbers, no bullets, no introduction, no explanation."
+    scoring:
+      type: line_count
+      count: 5
+
+  - id: instruct_008
+    category: instruction_following
+    description: "Reverse-order list"
+    prompt: "List the months of the year in reverse order starting with December and ending with January, separated by commas. No other text."
+    scoring:
+      type: contains
+      answer: "December"
