@@ -8,6 +8,7 @@ Scoring types:
   contains_n       — substring must appear at least N times (min_count)
   not_contains     — list of forbidden strings must all be absent
   ends_with        — last non-empty line's last word matches answer
+  fuzzy_match      — bidirectional containment: passes if answer⊆response OR response⊆answer
   word_count       — word count must fall within [min, max]
   regex            — regex search
   json_keys        — parse JSON object, verify required keys exist
@@ -54,6 +55,7 @@ def score_response(task: dict, run_result: dict, allow_code_exec: bool = False) 
         "contains_n":   _score_contains_n,
         "not_contains": _score_not_contains,
         "ends_with":    _score_ends_with,
+        "fuzzy_match":  _score_fuzzy_match,
         "word_count":   _score_word_count,
         "regex":        _score_regex,
         "json_keys":    _score_json_keys,
@@ -164,6 +166,14 @@ def _score_ends_with(response: str, scoring: dict):
     if last_word == expected:
         return 1.0, f"Response ends with '{expected}'"
     return 0.0, f"Last word: '{last_word}', expected '{expected}'"
+
+
+def _score_fuzzy_match(response: str, scoring: dict):
+    answer = str(scoring.get("answer", scoring.get("value", ""))).strip().lower()
+    resp = response.strip().lower()
+    if answer in resp or resp in answer:
+        return 1.0, f"fuzzy_match: '{answer[:60]}' ↔ response"
+    return 0.0, f"fuzzy_match failed: expected '{answer[:60]}'"
 
 
 def _score_word_count(response: str, scoring: dict):

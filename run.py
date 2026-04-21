@@ -149,6 +149,8 @@ def main():
     parser.add_argument("--allow-code-exec",action="store_true",     help="Enable code_exec scoring (runs model-generated Python locally — review tasks first)")
     parser.add_argument("--ci-threshold",   type=float, default=None,metavar="RATIO",
                         help="Exit with code 1 if overall score ratio is below this (e.g. 0.8 = 80%%)")
+    parser.add_argument("--limit",          type=int,   default=None, metavar="N",
+                        help="Run only the first N tasks per category (smoke test / quick iteration)")
     args = parser.parse_args()
 
     config = _load_config(args.config)
@@ -200,6 +202,19 @@ def main():
     if not tasks:
         console.print("[red]No tasks loaded. Check the tasks/ directory.[/red]")
         sys.exit(1)
+
+    # Apply --limit: keep only first N tasks per category
+    if args.limit:
+        from collections import defaultdict
+        seen: dict = defaultdict(int)
+        limited = []
+        for t in tasks:
+            cat = t.get("category", "")
+            if seen[cat] < args.limit:
+                limited.append(t)
+                seen[cat] += 1
+        tasks = limited
+        console.print(f"[dim]--limit {args.limit}: {len(tasks)} tasks (first {args.limit} per category)[/dim]")
 
     cats = sorted(set(t["category"] for t in tasks))
     console.print(

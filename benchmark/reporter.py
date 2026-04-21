@@ -1,6 +1,7 @@
 ﻿"""benchmark/reporter.py - rich console output and result persistence."""
 import csv
 import json
+import statistics
 from datetime import datetime
 from pathlib import Path
 
@@ -103,6 +104,31 @@ def print_report(all_results: dict):
             row.append(f"{val:.1f}" if val is not None else "—")
         perf.add_row(*row)
     console.print(perf)
+
+    # Latency histogram per category (first model only when single-model run, else each model)
+    for m in models:
+        lat = Table(box=box.ROUNDED, title=f"Latency by Category — {_short(m)}", show_lines=True)
+        lat.add_column("Category",    style="bold", min_width=22)
+        lat.add_column("Tasks",       justify="right", min_width=6)
+        lat.add_column("Min (ms)",    justify="right", min_width=10)
+        lat.add_column("Median (ms)", justify="right", min_width=12)
+        lat.add_column("p95 (ms)",    justify="right", min_width=10)
+        lat.add_column("Max (ms)",    justify="right", min_width=10)
+
+        for cat in categories:
+            vals = sorted([
+                r["total_ms"] for r in all_results[m]
+                if r["task"]["category"] == cat and r.get("total_ms") is not None
+            ])
+            if not vals:
+                lat.add_row(cat, "—", "—", "—", "—", "—")
+                continue
+            p95_idx = int(len(vals) * 0.95)
+            p95 = vals[min(p95_idx, len(vals) - 1)]
+            med = statistics.median(vals)
+            lat.add_row(cat, str(len(vals)),
+                        f"{vals[0]:.0f}", f"{med:.0f}", f"{p95:.0f}", f"{vals[-1]:.0f}")
+        console.print(lat)
 
 
 def _short(model_id: str, max_len: int = 32) -> str:

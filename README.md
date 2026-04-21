@@ -1,7 +1,7 @@
 # LLM Benchmark Suite
 
 ![Python](https://img.shields.io/badge/python-3.11%2B-blue)
-![Tasks](https://img.shields.io/badge/tasks-67-green)
+![Tasks](https://img.shields.io/badge/tasks-77-green)
 ![Backends](https://img.shields.io/badge/backends-3-orange)
 ![License](https://img.shields.io/badge/license-MIT-lightgrey)
 
@@ -26,9 +26,10 @@ Results are reproducible: temperature=0, tolerance-based numeric scoring, strict
 | **Multi-backend** | LM Studio, Ollama, llama.cpp — configure once, run against all |
 | **Auto-discovery** | Probes enabled backends, enumerates all available models |
 | **Thinking model support** | Qwen3, DeepSeek-R1 — reasoning tokens captured, clean text scored |
-| **67 tasks, 7 categories** | Math, reasoning, coding, knowledge, writing, summarization, instruction-following |
-| **8 scoring types** | numeric, exact, contains, regex, json_keys, line_count, code_exec, llm_judge |
+| **77 tasks, 7 categories** | Math, reasoning, coding, knowledge, writing, summarization, instruction-following |
+| **13 scoring types** | numeric, exact, contains, fuzzy_match, regex, json_keys, line_count, code_exec, word_count, contains_n, not_contains, ends_with, llm_judge |
 | **Crash-safe results** | Incremental JSONL written after every task — restart safely |
+| **Latency histograms** | Per-category min/median/p95/max latency surfaced in summary table |
 | **CI integration** | `--ci-threshold` flag returns exit code 1 when score drops below target |
 | **Rich console output** | Live per-task scores + summary tables + CSV/JSON export |
 
@@ -104,13 +105,14 @@ llm-bench --discover
 ## All Commands
 
 ```
-python run.py                           # auto-discover + run all 67 tasks
+python run.py                           # auto-discover + run all 77 tasks
 python run.py --discover                # probe backends, list models, exit
 python run.py --dry-run                 # validate task files + check backends, no inference
 python run.py --model "qwen3:8b"        # single model (all categories)
 python run.py --backend ollama          # restrict to one backend type
 python run.py --category math           # single category
 python run.py --task capital_france     # single task by ID
+python run.py --limit 2                 # first 2 tasks per category (quick smoke test)
 python run.py --no-autoload             # skip LM Studio model-load attempt
 python run.py --allow-code-exec         # enable code_exec scoring (runs generated Python locally)
 python run.py --ci-threshold 0.80       # exit 1 if overall score < 80%  (CI integration)
@@ -125,12 +127,12 @@ python run.py --output my_results       # custom output directory
 |---|---|---|
 | `math` | 10 | `numeric` — extract first number, tolerance-based comparison |
 | `knowledge` | 15 | `exact` / `contains` / `numeric` |
-| `coding` | 8 | `code_exec` — runs generated Python, looks for `PASS` in stdout |
+| `coding` | 11 | `code_exec` — runs generated Python, looks for `PASS` in stdout |
 | `reasoning` | 8 | `contains` / `exact` |
 | `writing` | 10 | `line_count` / `regex` |
 | `summarization` | 8 | `contains` / `line_count` / `regex` |
-| `instruction_following` | 8 | `exact` / `contains` / `regex` |
-| **Total** | **67** | |
+| `instruction_following` | 15 | `exact` / `contains` / `word_count` / `contains_n` / `not_contains` / `ends_with` |
+| **Total** | **77** | |
 
 ---
 
@@ -141,9 +143,14 @@ python run.py --output my_results       # custom output directory
 | `numeric` | Extracted number is within `tolerance` of `answer`/`value` |
 | `exact` | Stripped, lowercased response equals expected |
 | `contains` | Response contains expected substring (case-insensitive) |
+| `fuzzy_match` | Bidirectional: `answer ⊆ response` OR `response ⊆ answer` — handles valid paraphrases |
+| `contains_n` | Expected substring appears at least `min_count` times |
+| `not_contains` | None of the `forbidden` strings appear in the response |
+| `ends_with` | Last non-empty line's final word matches `answer` |
+| `word_count` | Response word count falls within `[min, max]` |
 | `regex` | Response matches `pattern` |
-| `json_keys` | Response parses as JSON and contains all `required_keys` |
-| `line_count` | Non-empty line count equals `expected` |
+| `json_keys` | Response parses as JSON and contains all `keys` |
+| `line_count` | Non-empty line count equals `count` |
 | `code_exec` | Generated code block executes and prints `PASS` (needs `--allow-code-exec`) |
 | `llm_judge` | Manual / future LLM-as-judge (placeholder) |
 
