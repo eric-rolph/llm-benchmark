@@ -42,6 +42,10 @@ class ModelRunner:
         messages: list[dict] = []
         if task.get("system"):
             messages.append({"role": "system", "content": task["system"]})
+        # Prepend few-shot examples as conversation history before the actual prompt
+        for example in task.get("few_shot", []):
+            messages.append({"role": "user",      "content": str(example.get("user", ""))})
+            messages.append({"role": "assistant",  "content": str(example.get("assistant", ""))})
         messages.append({"role": "user", "content": task["prompt"]})
 
         temperature = task.get("temperature", self.bench.get("temperature", 0.0))
@@ -154,3 +158,7 @@ class ModelRunner:
             "total_ms": round(_avg([r["total_ms"] for r in results]) or 0, 1),
             "tps":      round(_avg([r["tps"]       for r in results]) or 0, 1),
         }
+
+    def run_task_k(self, task: dict, k: int) -> list[dict]:
+        """Run the task k independent times (used for pass@k scoring)."""
+        return [self._run_once(task) for _ in range(k)]

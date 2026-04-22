@@ -338,3 +338,89 @@ class TestErrorHandling:
         s, d = score({"type": "nonexistent_type"}, "any response")
         assert s == 0.0
         assert "Unknown" in d
+
+
+# ── llm_judge ─────────────────────────────────────────────────────────────────
+
+class TestLLMJudge:
+    def test_no_client_returns_skip_detail(self):
+        """Without a judge client, llm_judge score is 0 with informative detail."""
+        s, d = score(
+            {"type": "llm_judge", "criteria": "Is the answer helpful?"},
+            "The answer is 42.",
+        )
+        assert s == 0.0  # None coerced to 0.0
+        assert "judge" in d.lower()
+
+    def test_judge_parses_score_line(self):
+        """Mock client returns SCORE: 8 — normalised to 0.8."""
+        from unittest.mock import MagicMock
+        mock_client = MagicMock()
+        mock_client.chat.completions.create.return_value.choices[0].message.content = (
+            "The response is largely correct.\nSCORE: 8"
+        )
+        s, d = score(
+            {"type": "llm_judge", "criteria": "Accuracy"},
+            "My answer.",
+            judge_client=mock_client,
+            judge_model="mock-judge",
+        )
+        assert s == pytest.approx(0.8)
+        assert "8/10" in d
+
+    def test_judge_score_10_capped_at_1(self):
+        from unittest.mock import MagicMock
+        mock_client = MagicMock()
+        mock_client.chat.completions.create.return_value.choices[0].message.content = "SCORE: 10"
+        s, _ = score(
+            {"type": "llm_judge", "criteria": "Anything"},
+            "Perfect answer.",
+            judge_client=mock_client,
+            judge_model="mock-judge",
+        )
+        assert s == 1.0
+
+    def test_judge_handles_unparseable_response(self):
+        from unittest.mock import MagicMock
+        mock_client = MagicMock()
+        mock_client.chat.completions.create.return_value.choices[0].message.content = (
+            "I cannot determine a score."
+        )
+        s, d = score(
+            {"type": "llm_judge", "criteria": "Anything"},
+            "Some response.",
+            judge_client=mock_client,
+            judge_model="mock-judge",
+        )
+        assert s == 0.0
+        assert "could not parse" in d.lower()
+
+    def test_judge_client_exception_handled(self):
+        from unittest.mock import MagicMock
+        mock_client = MagicMock()
+        mock_client.chat.completions.create.side_effect = RuntimeError("API down")
+        s, d = score(
+            {"type": "llm_judge", "criteria": "Anything"},
+            "Some response.",
+            judge_client=mock_client,
+            judge_model="mock-judge",
+        )
+        assert s == 0.0
+        assert "error" in d.lower()
+
+    def test_judge_score_in_middle_of_response(self):
+        """SCORE: N on any line (searched in reverse) is accepted."""
+        from unittest.mock import MagicMock
+        mock_client = MagicMock()
+        mock_client.chat.completions.create.return_value.choices[0].message.content = (
+            "Step 1: check accuracy.\nSCORE: 7\nOverall assessment done."
+        )
+        s, d = score(
+            {"type": "llm_judge", "criteria": "Accuracy"},
+            "Answer.",
+            judge_client=mock_client,
+            judge_model="mock-judge",
+        )
+        assert s == pytest.approx(0.7)
+        assert "7/10" in d
+

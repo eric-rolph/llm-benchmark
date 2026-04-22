@@ -26,7 +26,49 @@ import tempfile
 from benchmark.utils import strip_thinking
 
 
-def score_response(task: dict, run_result: dict, allow_code_exec: bool = False) -> dict:
+_JUDGE_SYSTEM = (
+    "You are an expert evaluator. Assess the model's response against the criteria.\n"
+    "Reason step by step, then on the LAST LINE of your reply output exactly:\n"
+    "SCORE: N\n"
+    "where N is an integer from 0 (completely wrong) to 10 (perfect)."
+)
+
+
+def _score_llm_judge(response: str, scoring: dict, task: dict, client, judge_model: str | None):
+    """LLM-as-judge scorer using CoT-then-score protocol."""
+    if client is None:
+        return None, "llm_judge skipped — set judge.enabled: true and re-run"
+    criteria  = scoring.get("criteria", "Is the response accurate, relevant, and helpful?")
+    reference = scoring.get("reference", "")
+    prompt    = task.get("prompt", "")
+    user_msg  = f"Criteria: {criteria}\n\nQuestion asked: {prompt}\n\nModel response: {response}"
+    if reference:
+        user_msg += f"\n\nReference answer: {reference}"
+    try:
+        resp = client.chat.completions.create(
+            model=judge_model or "default",
+            messages=[
+                {"role": "system", "content": _JUDGE_SYSTEM},
+                {"role": "user",   "content": user_msg},
+            ],
+            temperature=0.0,
+            max_tokens=512,
+            timeout=60,
+        )
+        judge_text = resp.choices[0].message.content or ""
+    except Exception as exc:
+        return None, f"llm_judge error: {exc}"
+    lines = [ln.strip() for ln in judge_text.strip().split("\n") if ln.strip()]
+    for ln in reversed(lines):
+        m = re.search(r"SCORE:\s*(\d+)", ln, re.IGNORECASE)
+        if m:
+            raw = int(m.group(1))
+            return min(max(raw / 10.0, 0.0), 1.0), f"Judge score: {raw}/10"
+    return None, "llm_judge: could not parse SCORE: N from response"
+
+
+def score_response(task: dict, run_result: dict, allow_code_exec: bool = False,
+                   judge_client=None, judge_model: str | None = None) -> dict:
     scored = {
         **run_result,
         "task": task,
@@ -61,7 +103,7 @@ def score_response(task: dict, run_result: dict, allow_code_exec: bool = False) 
         "json_keys":    _score_json_keys,
         "line_count":   _score_line_count,
         "code_exec":    _code_exec_fn,
-        "llm_judge":    lambda r, s: (None, "llm_judge (requires --judge flag)"),
+        "llm_judge":    lambda r, s: _score_llm_judge(r, s, task, judge_client, judge_model),
     }
 
     fn = dispatch.get(method, lambda r, s: (0.0, f"Unknown scoring type: {method}"))

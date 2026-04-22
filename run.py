@@ -17,10 +17,13 @@ Quick start:
   python run.py --no-autoload            # skip LM Studio model-load attempt
   python run.py --allow-code-exec        # enable code_exec scoring (runs model-generated Python)
   python run.py --ci-threshold 0.8       # exit 1 if overall score < 80%  (CI integration)
+  python run.py --limit 5                # smoke-test: first 5 tasks per category
+  python run.py --resume                 # skip tasks already in the most recent results JSONL
 """
 from __future__ import annotations
 
 import argparse
+import json
 import sys
 from pathlib import Path
 
@@ -151,6 +154,8 @@ def main():
                         help="Exit with code 1 if overall score ratio is below this (e.g. 0.8 = 80%%)")
     parser.add_argument("--limit",          type=int,   default=None, metavar="N",
                         help="Run only the first N tasks per category (smoke test / quick iteration)")
+    parser.add_argument("--resume",         action="store_true",
+                        help="Skip (model, task) pairs already in the most recent results JSONL (continue interrupted run)")
     args = parser.parse_args()
 
     config = _load_config(args.config)
@@ -191,7 +196,14 @@ def main():
         console.print("[red]No models to benchmark. Enable a backend in config.yaml or use --model.[/red]")
         console.print("[dim]Run --discover to see what is available.[/dim]")
         sys.exit(1)
-
+    # ── LLM judge setup ────────────────────────────────────────────────────────
+    judge_cfg = config.get("judge", {})
+    judge_client = None
+    judge_model: str | None = None
+    if judge_cfg.get("enabled") and all_pairs:
+        judge_model = judge_cfg.get("model") or all_pairs[0][0].id
+        judge_client = all_pairs[0][1].get_openai_client()
+        console.print(f"[dim]LLM judge enabled — model: {judge_model}[/dim]")
     # ── tasks ─────────────────────────────────────────────────────────────
     tasks = load_tasks(args.category)
     if args.task:
@@ -225,11 +237,29 @@ def main():
     all_results: dict = {}
 
     # Incremental JSONL for crash safety (one line per task, written immediately)
-    from pathlib import Path as _Path
     import datetime as _dt
     _ts = _dt.datetime.now().strftime("%Y%m%d_%H%M%S")
-    _jsonl_path = _Path(args.output) / f"results_{_ts}.jsonl"
-    _Path(args.output).mkdir(exist_ok=True)
+    _out_dir = Path(args.output)
+    _out_dir.mkdir(exist_ok=True)
+    _resume = bench_config.get("resume", False) or args.resume
+    _cached_keys: set = set()
+    if _resume:
+        _existing = sorted(_out_dir.glob("results_*.jsonl"))
+        if _existing:
+            _jsonl_path = _existing[-1]
+            with _jsonl_path.open(encoding="utf-8") as _fh:
+                for _line in _fh:
+                    try:
+                        _rec = json.loads(_line)
+                        _cached_keys.add((_rec.get("model_id", _rec.get("model", "")), _rec["task_id"]))
+                    except (ValueError, KeyError):
+                        pass
+            console.print(f"[dim]Resuming from {_jsonl_path.name} — {len(_cached_keys)} cached result(s)[/dim]")
+        else:
+            _jsonl_path = _out_dir / f"results_{_ts}.jsonl"
+            console.print("[dim]--resume: no existing JSONL found — starting fresh[/dim]")
+    else:
+        _jsonl_path = _out_dir / f"results_{_ts}.jsonl"
     console.print(f"[dim]Streaming results → {_jsonl_path}[/dim]\n")
 
     for model_info, backend in all_pairs:
@@ -244,8 +274,35 @@ def main():
 
         model_results: list = []
         for task in tasks:
-            raw    = runner.run_task(task)
-            scored = score_response(task, raw, allow_code_exec=args.allow_code_exec)
+            # Skip if already cached (--resume mode)
+            if (model_info.id, task["id"]) in _cached_keys:
+                console.print(f"  [dim]↩  {task['id']:40s}  (cached — skipped)[/dim]")
+                continue
+
+            scoring_type = task.get("scoring", {}).get("type")
+            if scoring_type == "pass_at_k":
+                k = task["scoring"].get("k", bench_config.get("runs_per_task", 3))
+                inner_type = task["scoring"].get("inner_type", "code_exec")
+                inner_task = {**task, "scoring": {**task["scoring"], "type": inner_type}}
+                raws = runner.run_task_k(inner_task, k)
+                attempts = [
+                    score_response(inner_task, r, allow_code_exec=args.allow_code_exec,
+                                   judge_client=judge_client, judge_model=judge_model)
+                    for r in raws
+                ]
+                n_passed = sum(1 for s in attempts if s["score"] >= 1.0)
+                best = max(attempts, key=lambda s: s["score"])
+                scored = {
+                    **best,
+                    "task": task,
+                    "score": 1.0 if n_passed > 0 else 0.0,
+                    "score_detail": f"pass@{k}: {n_passed}/{k} attempts passed",
+                }
+            else:
+                raw    = runner.run_task(task)
+                scored = score_response(task, raw, allow_code_exec=args.allow_code_exec,
+                                        judge_client=judge_client, judge_model=judge_model)
+            scored["model_id"] = model_info.id
             model_results.append(scored)
             print_task_result(scored)
             append_jsonl(scored, _jsonl_path)

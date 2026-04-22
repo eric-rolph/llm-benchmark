@@ -16,6 +16,31 @@ def _avg(vals: list) -> float | None:
     vals = [v for v in vals if v is not None]
     return sum(vals) / len(vals) if vals else None
 
+CATEGORY_WEIGHTS: dict = {
+    "coding":                1.5,
+    "math":                  1.2,
+    "reasoning":             1.2,
+    "knowledge":             1.0,
+    "instruction_following": 1.0,
+    "summarization":         0.8,
+    "writing":               0.8,
+}
+
+
+def _composite_score(results: list) -> float | None:
+    """Weighted composite score across categories (harder categories carry more weight)."""
+    if not results:
+        return None
+    by_cat: dict = {}
+    for r in results:
+        by_cat.setdefault(r["task"]["category"], []).append(r["score"])
+    w_sum = 0.0
+    w_tot = 0.0
+    for cat, scores in by_cat.items():
+        w = CATEGORY_WEIGHTS.get(cat, 1.0)
+        w_sum += (sum(scores) / len(scores)) * w
+        w_tot += w
+    return w_sum / w_tot if w_tot > 0 else None
 
 # ── per-task output ───────────────────────────────────────────────────────────
 
@@ -83,6 +108,12 @@ def print_report(all_results: dict):
         pct = sum(r["score"] for r in rs) / len(rs) * 100 if rs else 0
         total_row.append(f"[bold]{passed}/{len(rs)}  ({pct:.0f}%)[/bold]")
     acc.add_row(*total_row)
+
+    comp_row = ["[bold]Composite ★[/bold]"]
+    for m in models:
+        c = _composite_score(all_results[m])
+        comp_row.append(f"[bold]{c * 100:.1f}%[/bold]" if c is not None else "—")
+    acc.add_row(*comp_row)
     console.print(acc)
 
     # Performance table
@@ -147,8 +178,10 @@ def append_jsonl(result: dict, path: Path) -> None:
     """
     path.parent.mkdir(parents=True, exist_ok=True)
     record = {
+        "model_id":  result.get("model_id", result.get("backend", "?")),
         "model":     result.get("backend", "?"),
         "task_id":   result["task"]["id"],
+        "task_version": result["task"].get("_version"),
         "category":  result["task"]["category"],
         "score":     result["score"],
         "score_detail": result.get("score_detail", ""),

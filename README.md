@@ -1,7 +1,7 @@
 # LLM Benchmark Suite
 
 ![Python](https://img.shields.io/badge/python-3.11%2B-blue)
-![Tasks](https://img.shields.io/badge/tasks-77-green)
+![Tasks](https://img.shields.io/badge/tasks-78-green)
 ![Backends](https://img.shields.io/badge/backends-3-orange)
 ![License](https://img.shields.io/badge/license-MIT-lightgrey)
 
@@ -26,8 +26,14 @@ Results are reproducible: temperature=0, tolerance-based numeric scoring, strict
 | **Multi-backend** | LM Studio, Ollama, llama.cpp — configure once, run against all |
 | **Auto-discovery** | Probes enabled backends, enumerates all available models |
 | **Thinking model support** | Qwen3, DeepSeek-R1 — reasoning tokens captured, clean text scored |
-| **77 tasks, 7 categories** | Math, reasoning, coding, knowledge, writing, summarization, instruction-following |
-| **13 scoring types** | numeric, exact, contains, fuzzy_match, regex, json_keys, line_count, code_exec, word_count, contains_n, not_contains, ends_with, llm_judge |
+| **78 tasks, 7 categories** | Math, reasoning, coding, knowledge, writing, summarization, instruction-following |
+| **14 scoring types** | numeric, exact, contains, fuzzy_match, regex, json_keys, line_count, code_exec, word_count, contains_n, not_contains, ends_with, pass_at_k, llm_judge |
+| **Few-shot examples** | Add `few_shot:` to any task YAML to inject conversation history before the prompt |
+| **pass@k coding** | `scoring.type: pass_at_k` runs a task k times, scores 1.0 if any attempt passes |
+| **LLM-as-judge** | CoT-then-score protocol — enable with `judge.enabled: true` in config |
+| **Run resumption** | `--resume` continues from an interrupted run, skipping already-scored tasks |
+| **Task versioning** | `metadata.version` in task YAML propagates to JSONL for audit trails |
+| **Composite score** | Weighted cross-category score in summary table (coding/math/reasoning weighted higher) |
 | **Crash-safe results** | Incremental JSONL written after every task — restart safely |
 | **Latency histograms** | Per-category min/median/p95/max latency surfaced in summary table |
 | **CI integration** | `--ci-threshold` flag returns exit code 1 when score drops below target |
@@ -105,7 +111,7 @@ llm-bench --discover
 ## All Commands
 
 ```
-python run.py                           # auto-discover + run all 77 tasks
+python run.py                           # auto-discover + run all 78 tasks
 python run.py --discover                # probe backends, list models, exit
 python run.py --dry-run                 # validate task files + check backends, no inference
 python run.py --model "qwen3:8b"        # single model (all categories)
@@ -113,6 +119,7 @@ python run.py --backend ollama          # restrict to one backend type
 python run.py --category math           # single category
 python run.py --task capital_france     # single task by ID
 python run.py --limit 2                 # first 2 tasks per category (quick smoke test)
+python run.py --resume                  # skip tasks already in the most recent results JSONL
 python run.py --no-autoload             # skip LM Studio model-load attempt
 python run.py --allow-code-exec         # enable code_exec scoring (runs generated Python locally)
 python run.py --ci-threshold 0.80       # exit 1 if overall score < 80%  (CI integration)
@@ -127,12 +134,12 @@ python run.py --output my_results       # custom output directory
 |---|---|---|
 | `math` | 10 | `numeric` — extract first number, tolerance-based comparison |
 | `knowledge` | 15 | `exact` / `contains` / `numeric` |
-| `coding` | 11 | `code_exec` — runs generated Python, looks for `PASS` in stdout |
+| `coding` | 12 | `code_exec` / `pass_at_k` — runs generated Python, looks for `PASS` in stdout |
 | `reasoning` | 8 | `contains` / `exact` |
 | `writing` | 10 | `line_count` / `regex` |
 | `summarization` | 8 | `contains` / `line_count` / `regex` |
 | `instruction_following` | 15 | `exact` / `contains` / `word_count` / `contains_n` / `not_contains` / `ends_with` |
-| **Total** | **77** | |
+| **Total** | **78** | |
 
 ---
 
@@ -152,7 +159,8 @@ python run.py --output my_results       # custom output directory
 | `json_keys` | Response parses as JSON and contains all `keys` |
 | `line_count` | Non-empty line count equals `count` |
 | `code_exec` | Generated code block executes and prints `PASS` (needs `--allow-code-exec`) |
-| `llm_judge` | Manual / future LLM-as-judge (placeholder) |
+| `pass_at_k` | Any of `k` independent attempts passes `inner_type` scoring (needs `--allow-code-exec`) |
+| `llm_judge` | Judge LLM scores the response and returns `SCORE: N` (needs `judge.enabled: true`) |
 
 ---
 
@@ -200,6 +208,111 @@ Quick example:
     type: exact
     answer: berlin
 ```
+
+### Few-shot examples
+
+Add a `few_shot:` block to any task to inject conversation history before the model sees the actual prompt:
+
+```yaml
+- id: my_task
+  category: coding
+  prompt: "Write a Python function called `square(n)` that returns n squared."
+  few_shot:
+    - user: "Write a Python function called `cube(n)` that returns n cubed."
+      assistant: |
+        def cube(n):
+            return n ** 3
+  scoring:
+    type: code_exec
+    test_code: |
+      assert square(3) == 9
+      print('PASS')
+```
+
+### Task versioning
+
+Add a `metadata:` block to any dict-format task file to version-stamp all its tasks:
+
+```yaml
+metadata:
+  version: 2
+
+tasks:
+  - id: my_task
+    ...
+```
+
+The `task_version` field appears in every JSONL result record for audit trails.
+
+### pass@k scoring
+
+Run a task k times and pass if any attempt succeeds:
+
+```yaml
+- id: code_challenge
+  category: coding
+  prompt: "Write a function called `solve(n)` ..."
+  scoring:
+    type: pass_at_k
+    k: 3
+    inner_type: code_exec
+    test_code: |
+      assert solve(5) == 42
+      print('PASS')
+```
+
+### LLM-as-judge
+
+For subjective tasks, enable the LLM judge in `config.yaml`:
+
+```yaml
+judge:
+  enabled: true
+  model: null   # null = use first discovered model
+```
+
+Then add tasks using `llm_judge` scoring:
+
+```yaml
+- id: explain_quantum
+  category: writing
+  prompt: "Explain quantum entanglement in two sentences for a teenager."
+  scoring:
+    type: llm_judge
+    criteria: "Is the explanation accurate, concise, and appropriate for a teenager?"
+    reference: "Quantum entanglement means two particles stay linked so measuring one instantly affects the other, no matter how far apart they are."
+```
+
+The judge uses a CoT-then-score protocol: it reasons step by step and then outputs `SCORE: N` (0–10), which is normalised to 0.0–1.0.
+
+### Run resumption
+
+Resume an interrupted benchmark without re-running completed tasks:
+
+```bash
+python run.py --resume
+```
+
+Or enable it permanently in `config.yaml`:
+
+```yaml
+benchmark:
+  resume: true
+```
+
+### Composite score
+
+The summary table now includes a **Composite ★** row — a weighted average across categories where harder categories carry more weight:
+
+| Category | Weight |
+|---|---|
+| coding | 1.5 |
+| math | 1.2 |
+| reasoning | 1.2 |
+| knowledge | 1.0 |
+| instruction_following | 1.0 |
+| summarization | 0.8 |
+| writing | 0.8 |
 
 ---
 

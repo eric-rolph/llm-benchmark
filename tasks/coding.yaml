@@ -1,3 +1,6 @@
+metadata:
+  version: 1
+
 tasks:
   - id: code_001
     category: coding
@@ -202,4 +205,22 @@ tasks:
         assert rotate_matrix([[42]])                     == [[42]]
         assert rotate_matrix([[1,2,3,4],[5,6,7,8],[9,10,11,12],[13,14,15,16]]) == \
                [[13,9,5,1],[14,10,6,2],[15,11,7,3],[16,12,8,4]]
+        print("PASS")
+
+  - id: code_012
+    category: coding
+    description: "Count vowels (pass@k demo)"
+    prompt: |
+      Write a Python function called `count_vowels(s)` that returns the count of vowels
+      (a, e, i, o, u — case-insensitive) in string s.
+      Return only the Python code with no explanation.
+    scoring:
+      type: pass_at_k
+      k: 2
+      inner_type: code_exec
+      test_code: |
+        assert count_vowels("hello") == 2
+        assert count_vowels("AEIOU") == 5
+        assert count_vowels("rhythm") == 0
+        assert count_vowels("") == 0
         print("PASS")

@@ -33,13 +33,19 @@ def load_tasks(category_filter: str | None = None, validate: bool = True) -> lis
         # Support both a bare YAML list and a dict with a 'tasks' key
         if isinstance(data, list):
             raw_tasks = data
+            file_version = None
         elif isinstance(data, dict):
             raw_tasks = data.get("tasks", [])
+            _meta = data.get("metadata", {})
+            file_version = _meta.get("version") if isinstance(_meta, dict) else None
         else:
             continue  # skip empty / non-task YAML files
         for i, task in enumerate(raw_tasks):
             if validate:
                 _validate_task(task, yaml_file.name, i)
             if category_filter is None or task.get("category") == category_filter:
-                tasks.append(task)
+                t = dict(task)
+                if file_version is not None:
+                    t["_version"] = file_version
+                tasks.append(t)
     return tasks

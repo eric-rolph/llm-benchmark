@@ -47,6 +47,7 @@ benchmark:
   max_tokens: 4096       # Must be large enough for thinking models (Qwen3, Kimi, etc.)
   timeout: 180           # Seconds before a single request is abandoned
   runs_per_task: 1       # Set to 3 for statistically reliable TPS numbers
+  resume: false          # Set true (or use --resume) to skip already-completed (model, task) pairs
 
 # LLM-as-judge (for tasks with scoring.type: llm_judge)
 judge:
