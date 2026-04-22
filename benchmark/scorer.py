@@ -16,6 +16,7 @@ Scoring types:
   code_exec        — extract code block, run it, look for PASS in stdout
   pass_at_k        — run inner_type k times; score via unbiased Chen et al. 2021 estimator
   llm_judge        — CoT-then-score via a secondary LLM (enable with judge.enabled: true)
+  rubric_judge     — decomposed multi-criterion rubric via LLM (XpertBench ShotJudge pattern)
 """
 import json
 import os
@@ -76,6 +77,109 @@ def _score_llm_judge(response: str, scoring: dict, task: dict, client, judge_mod
     return None, "llm_judge: could not parse SCORE: N from response"
 
 
+# ── rubric judge ─────────────────────────────────────────────────────────────
+
+_RUBRIC_SYSTEM = (
+    "You are a rigorous grader. Evaluate the response criterion-by-criterion.\n"
+    "For each criterion, output a line in EXACTLY this format:\n"
+    "  CRITERION <n>: <PASS|PARTIAL|FAIL> (<brief reason>)\n"
+    "Replace <n> with the criterion number starting at 1.\n"
+    "PASS = fully satisfied, PARTIAL = partially satisfied, FAIL = not satisfied.\n"
+    "After all criteria, output one final line:\n"
+    "  RUBRIC_SCORE: <0.0–1.0>\n"
+    "where the score is the weighted average you computed from the criteria."
+)
+
+_RUBRIC_SCALE = {"PASS": 1.0, "PARTIAL": 0.5, "FAIL": 0.0}
+
+
+def _score_rubric_judge(response: str, scoring: dict, task: dict, client, judge_model: str | None):
+    """
+    Decomposed rubric scorer (XpertBench ShotJudge pattern).
+
+    scoring schema:
+      type: rubric_judge
+      criteria:
+        - criterion: "The response directly answers the question"
+          weight: 2.0
+        - criterion: "Key facts are accurate"
+          weight: 3.0
+        - criterion: "Response is appropriately concise"
+          weight: 1.0
+      reference: "optional reference answer"   # optional
+    """
+    if client is None:
+        return None, "rubric_judge skipped — set judge.enabled: true and re-run"
+
+    criteria_list = scoring.get("criteria", [])
+    if not criteria_list:
+        return None, "rubric_judge: no 'criteria' list in scoring definition"
+
+    reference = scoring.get("reference", "")
+    prompt    = task.get("prompt", "")
+
+    # Build numbered criteria block
+    criteria_block = "\n".join(
+        f"  {i+1}. [{float(c.get('weight', 1.0)):.1f}x] {c['criterion']}"
+        for i, c in enumerate(criteria_list)
+    )
+
+    user_msg = (
+        f"Evaluate the following response using the rubric below.\n\n"
+        f"Task prompt:\n<question>\n{prompt}\n</question>\n\n"
+        f"Rubric criteria (weight shown as multiplier):\n{criteria_block}\n\n"
+        f"Response to evaluate:\n<response>\n{response[:4000]}\n</response>"
+    )
+    if reference:
+        user_msg += f"\n\nReference answer (for factual grounding):\n<reference>\n{reference[:2000]}\n</reference>"
+
+    try:
+        resp = client.chat.completions.create(
+            model=judge_model or "default",
+            messages=[
+                {"role": "system", "content": _RUBRIC_SYSTEM},
+                {"role": "user",   "content": user_msg},
+            ],
+            temperature=0.0,
+            max_tokens=768,
+            timeout=90,
+        )
+        judge_text = resp.choices[0].message.content or ""
+    except Exception as exc:
+        return None, f"rubric_judge error: {exc}"
+
+    # Parse RUBRIC_SCORE from last line (most reliable signal)
+    lines = [ln.strip() for ln in judge_text.strip().split("\n") if ln.strip()]
+    for ln in reversed(lines):
+        m = re.search(r"RUBRIC_SCORE:\s*([01](?:\.\d+)?)", ln, re.IGNORECASE)
+        if m:
+            score = float(m.group(1))
+            score = min(max(score, 0.0), 1.0)
+
+            # Parse per-criterion verdicts for the detail string
+            verdicts = re.findall(r"CRITERION\s+\d+:\s*(PASS|PARTIAL|FAIL)", judge_text, re.IGNORECASE)
+            detail = f"Rubric: {' | '.join(v.upper() for v in verdicts)}  →  {score:.2f}"
+            return score, detail
+
+    # Fallback: compute weighted score from criterion lines if RUBRIC_SCORE missing
+    verdicts = re.findall(r"CRITERION\s+(\d+):\s*(PASS|PARTIAL|FAIL)", judge_text, re.IGNORECASE)
+    if verdicts and len(verdicts) == len(criteria_list):
+        w_sum = 0.0
+        w_tot = 0.0
+        for idx_str, verdict in verdicts:
+            idx = int(idx_str) - 1
+            if 0 <= idx < len(criteria_list):
+                w = float(criteria_list[idx].get("weight", 1.0))
+                w_sum += _RUBRIC_SCALE.get(verdict.upper(), 0.0) * w
+                w_tot += w
+        if w_tot > 0:
+            score = w_sum / w_tot
+            detail = f"Rubric (computed): {' | '.join(v.upper() for _, v in verdicts)}  →  {score:.2f}"
+            return min(max(score, 0.0), 1.0), detail
+
+    return None, "rubric_judge: could not parse RUBRIC_SCORE or criterion verdicts"
+
+
 def score_response(task: dict, run_result: dict, allow_code_exec: bool = False,
                    judge_client=None, judge_model: str | None = None) -> dict:
     scored = {
@@ -113,6 +217,7 @@ def score_response(task: dict, run_result: dict, allow_code_exec: bool = False,
         "line_count":   _score_line_count,
         "code_exec":    _code_exec_fn,
         "llm_judge":    lambda r, s: _score_llm_judge(r, s, task, judge_client, judge_model),
+        "rubric_judge": lambda r, s: _score_rubric_judge(r, s, task, judge_client, judge_model),
     }
 
     fn = dispatch.get(method, lambda r, s: (0.0, f"Unknown scoring type: {method}"))

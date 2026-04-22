@@ -1,6 +1,7 @@
 tasks:
   - id: math_001
     category: math
+    difficulty: medium
     description: "Average speed — harmonic mean trap"
     prompt: |
       A car travels from town A to town B at 60 km/h and returns at 40 km/h.
@@ -13,6 +14,7 @@ tasks:
 
   - id: math_002
     category: math
+    difficulty: medium
     description: "Arithmetic sequence nth term"
     prompt: |
       In an arithmetic sequence, the 3rd term is 11 and the 9th term is 35.
@@ -25,6 +27,7 @@ tasks:
 
   - id: math_003
     category: math
+    difficulty: hard
     description: "Modular exponentiation"
     prompt: |
       What is the remainder when 3^100 is divided by 7?
@@ -36,6 +39,7 @@ tasks:
 
   - id: math_004
     category: math
+    difficulty: hard
     description: "Combinatorics — even 4-digit numbers"
     prompt: |
       How many 4-digit numbers can be formed using the digits 1, 2, 3, 4, 5
@@ -48,6 +52,7 @@ tasks:
 
   - id: math_005
     category: math
+    difficulty: medium
     description: "Mixture problem"
     prompt: |
       A chemist mixes a 30% salt solution with a 10% salt solution to obtain
@@ -60,6 +65,7 @@ tasks:
 
   - id: math_006
     category: math
+    difficulty: easy
     description: "Dice outcomes for target sum"
     prompt: |
       How many ways can two standard 6-sided dice show a total of 9?
@@ -72,6 +78,7 @@ tasks:
 
   - id: math_007
     category: math
+    difficulty: easy
     description: "System of two equations"
     prompt: |
       Solve the system of equations:
@@ -86,6 +93,7 @@ tasks:
 
   - id: math_008
     category: math
+    difficulty: easy
     description: "Compound interest"
     prompt: |
       A savings account holds $1,000 at 10% annual interest compounded once per year.
@@ -98,6 +106,7 @@ tasks:
 
   - id: math_009
     category: math
+    difficulty: medium
     description: "Successive percentage discounts"
     prompt: |
       A jacket costs $80. It goes on sale for 25% off.
@@ -111,6 +120,7 @@ tasks:
 
   - id: math_010
     category: math
+    difficulty: medium
     description: "Triangle angles — three unknowns"
     prompt: |
       In a triangle, angle A is twice angle B, and angle C is 30 degrees more than angle A.

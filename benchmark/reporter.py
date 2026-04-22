@@ -1,6 +1,7 @@
 ﻿"""benchmark/reporter.py - rich console output and result persistence."""
 import csv
 import json
+import math
 import statistics
 from datetime import datetime
 from pathlib import Path
@@ -22,6 +23,35 @@ CATEGORY_WEIGHTS: dict = {
     "summarization":         0.8,
     "writing":               0.8,
 }
+
+# Expected reasoning-token budget per category (E3-Score baseline).
+# Derived from EffiReason-Bench: a "right-sized" model should need roughly
+# this many reasoning tokens to solve tasks in each category.
+# Non-thinking models (reasoning_tokens == 0) are excluded from E3 computation.
+_E3_EXPECTED_TOKENS: dict = {
+    "coding":                2000,
+    "math":                  600,
+    "reasoning":             600,
+    "knowledge":             200,
+    "instruction_following": 200,
+    "summarization":         400,
+    "writing":               400,
+}
+
+
+def _e3_score(score: float, reasoning_tokens: int | None, category: str) -> float | None:
+    """
+    E3-Score (EffiReason-Bench variant):
+        E3 = accuracy × log(expected + 1) / log(actual + 1)
+    Rewards correct answers achieved with fewer reasoning tokens.
+    Returns None when reasoning_tokens == 0 (non-thinking model) so we
+    don't penalise models that produce no chain-of-thought.
+    """
+    if reasoning_tokens is None or reasoning_tokens == 0:
+        return None
+    expected = _E3_EXPECTED_TOKENS.get(category.lower().strip(), 500)
+    actual   = max(reasoning_tokens, 1)
+    return score * math.log(expected + 1) / math.log(actual + 1)
 
 
 def _composite_score(results: list) -> float | None:
@@ -93,7 +123,12 @@ def print_report(all_results: dict):
             if rs:
                 passed = sum(1 for r in rs if r["score"] >= 1.0)
                 pct = sum(r["score"] for r in rs) / len(rs) * 100
-                row.append(f"{passed}/{len(rs)}  ({pct:.0f}%)")
+                stds = [r["score_std"] for r in rs if r.get("score_std") is not None]
+                if stds:
+                    avg_std = sum(stds) / len(stds) * 100
+                    row.append(f"{passed}/{len(rs)}  ({pct:.0f}% ±{avg_std:.0f}%)")
+                else:
+                    row.append(f"{passed}/{len(rs)}  ({pct:.0f}%)")
             else:
                 row.append("—")
         acc.add_row(*row)
@@ -133,6 +168,53 @@ def print_report(all_results: dict):
         perf.add_row(*row)
     console.print(perf)
 
+    # E3-Score (efficiency-adjusted accuracy) — only shown when thinking tokens are present
+    any_thinking = any(
+        r.get("reasoning_tokens", 0) > 0
+        for rs in all_results.values() for r in rs
+    )
+    if any_thinking:
+        e3 = Table(box=box.ROUNDED, title="E3-Score — Efficiency-Adjusted Accuracy", show_lines=True)
+        e3.add_column("Category", style="bold", min_width=22)
+        for m in models:
+            e3.add_column(_short(m), justify="center", min_width=16)
+
+        for cat in categories:
+            row = [cat]
+            for m in models:
+                rs = [r for r in all_results[m] if r["task"]["category"] == cat]
+                scores = [
+                    _e3_score(r["score"], r.get("reasoning_tokens"), cat)
+                    for r in rs
+                ]
+                valid = [s for s in scores if s is not None]
+                row.append(f"{sum(valid)/len(valid)*100:.0f}%" if valid else "—")
+            e3.add_row(*row)
+
+        # Weighted composite E3
+        e3_total_row = ["[bold]E3 Composite ★[/bold]"]
+        for m in models:
+            rs = all_results[m]
+            by_cat: dict = {}
+            for r in rs:
+                by_cat.setdefault(r["task"]["category"], []).append(r)
+            w_sum, w_tot = 0.0, 0.0
+            for cat, cat_rs in by_cat.items():
+                valid = [
+                    _e3_score(r["score"], r.get("reasoning_tokens"), cat)
+                    for r in cat_rs
+                    if _e3_score(r["score"], r.get("reasoning_tokens"), cat) is not None
+                ]
+                if valid:
+                    w = CATEGORY_WEIGHTS.get(cat.lower().strip(), 1.0)
+                    w_sum += (sum(valid) / len(valid)) * w
+                    w_tot += w
+            e3_total_row.append(
+                f"[bold]{w_sum/w_tot*100:.1f}%[/bold]" if w_tot > 0 else "—"
+            )
+        e3.add_row(*e3_total_row)
+        console.print(e3)
+
     # Latency histogram per category (first model only when single-model run, else each model)
     for m in models:
         lat = Table(box=box.ROUNDED, title=f"Latency by Category — {_short(m)}", show_lines=True)
@@ -157,6 +239,33 @@ def print_report(all_results: dict):
             lat.add_row(cat, str(len(vals)),
                         f"{vals[0]:.0f}", f"{med:.0f}", f"{p95:.0f}", f"{vals[-1]:.0f}")
         console.print(lat)
+
+    # Per-difficulty breakdown — only shown when tasks carry a 'difficulty' field
+    all_difficulties = sorted({
+        r["task"].get("difficulty", "").lower()
+        for rs in all_results.values() for r in rs
+        if r["task"].get("difficulty")
+    })
+    if all_difficulties:
+        diff_table = Table(box=box.ROUNDED, title="Accuracy by Difficulty", show_lines=True)
+        diff_table.add_column("Difficulty", style="bold", min_width=12)
+        for m in models:
+            diff_table.add_column(_short(m), justify="center", min_width=16)
+
+        _DIFF_ORDER = ["easy", "medium", "hard", "expert"]
+        sorted_diffs = sorted(all_difficulties, key=lambda d: (_DIFF_ORDER.index(d) if d in _DIFF_ORDER else 99))
+        for diff in sorted_diffs:
+            row = [diff.capitalize()]
+            for m in models:
+                rs = [r for r in all_results[m] if r["task"].get("difficulty", "").lower() == diff]
+                if rs:
+                    passed = sum(1 for r in rs if r["score"] >= 1.0)
+                    pct = sum(r["score"] for r in rs) / len(rs) * 100
+                    row.append(f"{passed}/{len(rs)}  ({pct:.0f}%)")
+                else:
+                    row.append("—")
+            diff_table.add_row(*row)
+        console.print(diff_table)
 
 
 def _short(model_id: str, max_len: int = 32) -> str:

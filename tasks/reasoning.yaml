@@ -1,6 +1,7 @@
 tasks:
   - id: reason_001
     category: reasoning
+    difficulty: medium
     description: "5-runner race deduction — jersey colour position"
     prompt: |
       Five runners finished a race wearing different coloured jerseys: Red, Blue, Green, Yellow, White.
@@ -17,6 +18,7 @@ tasks:
 
   - id: reason_002
     category: reasoning
+    difficulty: easy
     description: "4-person job deduction"
     prompt: |
       Four people — Ann, Bob, Carl, and Dee — each have a different job:
@@ -32,6 +34,7 @@ tasks:
 
   - id: reason_003
     category: reasoning
+    difficulty: easy
     description: "Doubling-plus-one sequence"
     prompt: |
       What is the next number in this sequence: 3, 7, 15, 31, 63, ___?
@@ -43,6 +46,7 @@ tasks:
 
   - id: reason_004
     category: reasoning
+    difficulty: medium
     description: "Pipe fill/drain rate"
     prompt: |
       Pipe A fills a tank in 4 hours. Pipe B fills it in 6 hours.
@@ -56,6 +60,7 @@ tasks:
 
   - id: reason_005
     category: reasoning
+    difficulty: easy
     description: "Day-of-week arithmetic"
     prompt: |
       Today is Wednesday. A project is due in 25 days.
@@ -67,6 +72,7 @@ tasks:
 
   - id: reason_006
     category: reasoning
+    difficulty: medium
     description: "5-student score ordering"
     prompt: |
       Five students — Alex, Ben, Cara, Dee, and Eve — received distinct scores from
@@ -84,6 +90,7 @@ tasks:
 
   - id: reason_007
     category: reasoning
+    difficulty: hard
     description: "5-fruit price ranking"
     prompt: |
       Five fruits — mango, pear, orange, kiwi, and peach — are priced differently.
@@ -101,6 +108,7 @@ tasks:
 
   - id: reason_008
     category: reasoning
+    difficulty: hard
     description: "Knights and knaves — self-referential claim"
     prompt: |
       On an island, knights always tell the truth and knaves always lie.

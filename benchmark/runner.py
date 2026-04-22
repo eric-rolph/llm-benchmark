@@ -166,6 +166,9 @@ class ModelRunner:
             "ttft_ms":  round(avg_ttft,  1) if avg_ttft  is not None else None,
             "total_ms": round(avg_total, 1) if avg_total is not None else None,
             "tps":      round(avg_tps,   1) if avg_tps   is not None else None,
+            # All individual run results — used by run.py to compute score variance.
+            # Prefixed with _ to signal it is internal/transient (not written to JSONL).
+            "_all_runs": results,
         }
 
     def run_task_k(self, task: dict, k: int) -> list[dict]:

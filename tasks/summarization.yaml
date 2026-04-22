@@ -4,6 +4,7 @@
 
 - id: summarize_paragraph_business
   category: summarization
+  difficulty: easy
   prompt: |
     Summarize the following paragraph in one sentence:
 
@@ -20,6 +21,7 @@
 
 - id: extract_key_numbers
   category: summarization
+  difficulty: medium
   prompt: |
     From the following text, extract all monetary values mentioned.
     List each on a separate line with no extra text.
@@ -34,6 +36,7 @@
 
 - id: tldr_article
   category: summarization
+  difficulty: easy
   prompt: |
     Write a TL;DR (Too Long; Didn't Read) summary of this passage in one sentence:
 
@@ -52,6 +55,7 @@
 
 - id: extract_action_items
   category: summarization
+  difficulty: medium
   prompt: |
     Extract the action items from this meeting note. List each as a bullet point starting with "-".
 
@@ -66,6 +70,7 @@
 
 - id: headline_from_article
   category: summarization
+  difficulty: medium
   prompt: |
     Write a single news headline (one line, no period at the end) for this story:
 
@@ -82,6 +87,7 @@
 
 - id: main_point_philosophy
   category: summarization
+  difficulty: medium
   prompt: |
     In one sentence, state the main argument of this passage:
 
@@ -100,6 +106,7 @@
 
 - id: condense_to_3_bullets
   category: summarization
+  difficulty: medium
   prompt: |
     Condense the following into exactly 3 bullet points, each starting with "-":
 
@@ -118,6 +125,7 @@
 
 - id: identify_topic_sentence
   category: summarization
+  difficulty: easy
   prompt: |
     What is the main topic of this paragraph? Answer in 5 words or fewer.
 
@@ -128,3 +136,68 @@
   scoring:
     type: contains
     value: "photosynthesis"
+
+- id: executive_summary_rubric
+  category: summarization
+  difficulty: hard
+  description: "Executive summary — rubric-judged completeness and conciseness"
+  prompt: |
+    Write a 3-sentence executive summary of the following technical report excerpt.
+    Your summary must be self-contained and usable by a non-technical manager.
+    Output only the 3-sentence summary, nothing else.
+
+    "Our load-testing campaign against the new API gateway revealed three critical
+    findings. First, under a sustained load of 5,000 concurrent requests, p99 latency
+    degraded from 120ms to 2,400ms — a 20× increase — due to connection pool exhaustion
+    in the database adapter. Second, enabling connection pooling with a max-size of 200
+    reduced p99 latency to 180ms at the same load, well within our 500ms SLA threshold.
+    Third, CPU utilization on gateway nodes peaked at 94% during stress bursts; horizontal
+    auto-scaling triggers at 70% CPU were insufficient to pre-empt latency spikes because
+    spin-up time for new nodes averaged 45 seconds. We recommend setting auto-scale
+    triggers at 55% CPU and increasing the connection pool maximum to 300 as immediate
+    actions, with a longer-term migration to a connection-pooling proxy (PgBouncer or
+    Odyssey) to decouple application from database concurrency limits."
+  scoring:
+    type: rubric_judge
+    criteria:
+      - criterion: "The summary identifies the core problem (latency degradation under high load)"
+        weight: 2.0
+      - criterion: "The fix and its outcome are clearly stated (connection pooling reduced p99 latency)"
+        weight: 2.0
+      - criterion: "The remaining risk (auto-scaling lag) and recommended action are mentioned"
+        weight: 2.0
+      - criterion: "Summary is genuinely useful to a non-technical manager — avoids unexplained jargon"
+        weight: 2.0
+      - criterion: "Exactly 3 sentences, no more"
+        weight: 2.0
+
+- id: compare_contrast_rubric
+  category: summarization
+  difficulty: hard
+  description: "Compare/contrast summary — rubric-judged analytical quality"
+  prompt: |
+    In 2–3 sentences, compare and contrast the two positions described below.
+    Your summary must identify both what they agree on and how they differ.
+    Output only the comparison, nothing else.
+
+    Position A: "Artificial intelligence will eliminate millions of routine jobs over
+    the next decade, creating widespread unemployment that governments must address
+    through universal basic income and large-scale retraining programs."
+
+    Position B: "Historical technological transitions — from the printing press to
+    industrialization to computers — always created more jobs than they destroyed.
+    AI will follow the same pattern, freeing workers from tedious tasks and enabling
+    entirely new industries we cannot yet imagine."
+  scoring:
+    type: rubric_judge
+    criteria:
+      - criterion: "The summary correctly identifies what both positions agree on (AI changes the job market)"
+        weight: 2.0
+      - criterion: "The key disagreement (net job loss vs. net job creation) is clearly articulated"
+        weight: 3.0
+      - criterion: "Position A's policy recommendation (UBI / retraining) is mentioned or reflected"
+        weight: 1.5
+      - criterion: "Position B's historical analogy argument is captured or reflected"
+        weight: 1.5
+      - criterion: "Summary is 2–3 sentences and does not take a personal stance"
+        weight: 2.0

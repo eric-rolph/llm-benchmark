@@ -25,6 +25,7 @@ from __future__ import annotations
 import argparse
 import datetime
 import json
+import statistics
 import sys
 from pathlib import Path
 
@@ -87,6 +88,24 @@ def _run_model(
                 judge_client=judge_client,
                 judge_model=judge_model,
             )
+            # When runs_per_task > 1, score every individual run and record variance.
+            all_runs = raw.pop("_all_runs", None)
+            if all_runs and len(all_runs) > 1:
+                per_run_scores = []
+                for r in all_runs:
+                    if not r.get("error"):
+                        s = score_response(
+                            task, r,
+                            allow_code_exec=allow_code_exec,
+                            judge_client=judge_client,
+                            judge_model=judge_model,
+                        )
+                        per_run_scores.append(s["score"])
+                if per_run_scores:
+                    scored["score"] = statistics.mean(per_run_scores)
+                    scored["score_std"] = (
+                        statistics.stdev(per_run_scores) if len(per_run_scores) > 1 else 0.0
+                    )
 
         scored["model_id"] = model_info.id
         model_results.append(scored)
