@@ -12,12 +12,7 @@ from __future__ import annotations
 import time
 
 from benchmark.backends.base import Backend
-from benchmark.utils import strip_thinking
-
-
-def _avg(values: list) -> float | None:
-    vals = [v for v in values if v is not None]
-    return sum(vals) / len(vals) if vals else None
+from benchmark.utils import strip_thinking, _avg
 
 
 class ModelRunner:
@@ -83,7 +78,6 @@ class ModelRunner:
                         if t_first_reasoning is None:
                             t_first_reasoning = time.perf_counter()
                         reasoning_text += rc
-                        reasoning_tokens += 1
 
                     # Ollama thinking field (returned when think=True)
                     ot = getattr(delta, "thinking", None)
@@ -91,7 +85,6 @@ class ModelRunner:
                         if t_first_reasoning is None:
                             t_first_reasoning = time.perf_counter()
                         reasoning_text += ot
-                        reasoning_tokens += 1
 
                     # Regular content — the actual answer
                     if delta.content:
@@ -100,7 +93,15 @@ class ModelRunner:
                         response_text += delta.content
 
                 if getattr(chunk, "usage", None):
-                    completion_tokens = chunk.usage.completion_tokens or 0
+                    usage = chunk.usage
+                    completion_tokens = usage.completion_tokens or 0
+                    # Read reasoning_tokens from usage details when available
+                    # (supported by OpenAI, OpenRouter, and LM Studio ≥ 0.3.6)
+                    details = getattr(usage, "completion_tokens_details", None)
+                    if details:
+                        rt = getattr(details, "reasoning_tokens", None)
+                        if rt is not None:
+                            reasoning_tokens = int(rt)
 
         except Exception as e:
             return {
@@ -118,16 +119,18 @@ class ModelRunner:
         t_end = time.perf_counter()
         total_ms = (t_end - t_start) * 1000
 
-        # TTFT = time to first *content* token; fall back to first reasoning token
-        t_first = t_first_content or t_first_reasoning
+        # TTFT = earliest first-token timestamp (reasoning or content, whichever came first)
+        candidates = [t for t in (t_first_reasoning, t_first_content) if t is not None]
+        t_first = min(candidates) if candidates else None
         ttft_ms = (t_first - t_start) * 1000 if t_first else None
 
-        # TPS measured over the content-generation window only
-        t_content_start = t_first_content or t_first_reasoning or t_start
-        gen_s = t_end - t_content_start
-        answer_tokens = max(1, len(response_text.split())) if response_text else 1
-        tok = completion_tokens if completion_tokens > 0 else answer_tokens
-        tps = tok / gen_s if gen_s > 0.01 else 0.0
+        # TPS: only report when we have a reliable completion_tokens count from the API;
+        # word-count estimates are not comparable across models and are suppressed.
+        tps: float | None = (
+            round(completion_tokens / (total_ms / 1000), 1)
+            if completion_tokens > 0 and total_ms > 0
+            else None
+        )
 
         # Strip any <think>…</think> blocks that may have leaked into delta.content
         clean = strip_thinking(response_text)
@@ -139,7 +142,7 @@ class ModelRunner:
             "error": None,
             "ttft_ms": round(ttft_ms, 1) if ttft_ms else None,
             "total_ms": round(total_ms, 1),
-            "tps": round(tps, 1),
+            "tps": tps,
             "completion_tokens": completion_tokens,
             "reasoning_tokens": reasoning_tokens,
             "backend": self.backend.name,
@@ -151,12 +154,18 @@ class ModelRunner:
             return self._run_once(task)
 
         results = [self._run_once(task) for _ in range(runs)]
-        last = results[-1]
+        errors = [r for r in results if r.get("error")]
+        # Use the last successful run as the base dict; fall back to last run if all failed
+        last = next((r for r in reversed(results) if not r.get("error")), results[-1])
+        avg_ttft  = _avg([r["ttft_ms"]  for r in results])
+        avg_total = _avg([r["total_ms"] for r in results])
+        avg_tps   = _avg([r["tps"]      for r in results])
         return {
             **last,
-            "ttft_ms":  round(_avg([r["ttft_ms"]  for r in results]) or 0, 1),
-            "total_ms": round(_avg([r["total_ms"] for r in results]) or 0, 1),
-            "tps":      round(_avg([r["tps"]       for r in results]) or 0, 1),
+            "error":    errors[-1]["error"] if len(errors) == len(results) else None,
+            "ttft_ms":  round(avg_ttft,  1) if avg_ttft  is not None else None,
+            "total_ms": round(avg_total, 1) if avg_total is not None else None,
+            "tps":      round(avg_tps,   1) if avg_tps   is not None else None,
         }
 
     def run_task_k(self, task: dict, k: int) -> list[dict]:

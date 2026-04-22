@@ -10,6 +10,9 @@ backends:
     enabled: true
     name: "LM Studio"
     base_url: "http://localhost:1234/v1"
+    # WARNING: do not put a real API key here if this file is committed to git.
+    # Use the env var  LLM_BENCH_LM_STUDIO_API_KEY  instead.
+    # LM Studio accepts any non-empty string, so the placeholder is safe.
     api_key: "lm-studio"        # LM Studio accepts any non-empty key
     auto_discover: true         # Enumerate /v1/models on startup
     auto_load: true             # Use /api/v0/models/load before each model

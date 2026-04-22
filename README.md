@@ -29,7 +29,7 @@ Results are reproducible: temperature=0, tolerance-based numeric scoring, strict
 | **78 tasks, 7 categories** | Math, reasoning, coding, knowledge, writing, summarization, instruction-following |
 | **14 scoring types** | numeric, exact, contains, fuzzy_match, regex, json_keys, line_count, code_exec, word_count, contains_n, not_contains, ends_with, pass_at_k, llm_judge |
 | **Few-shot examples** | Add `few_shot:` to any task YAML to inject conversation history before the prompt |
-| **pass@k coding** | `scoring.type: pass_at_k` runs a task k times, scores 1.0 if any attempt passes |
+| **pass@k coding** | `scoring.type: pass_at_k` runs a task k times; uses the unbiased Chen et al. (2021) estimator |
 | **LLM-as-judge** | CoT-then-score protocol — enable with `judge.enabled: true` in config |
 | **Run resumption** | `--resume` continues from an interrupted run, skipping already-scored tasks |
 | **Task versioning** | `metadata.version` in task YAML propagates to JSONL for audit trails |
@@ -313,6 +313,24 @@ The summary table now includes a **Composite ★** row — a weighted average ac
 | instruction_following | 1.0 |
 | summarization | 0.8 |
 | writing | 0.8 |
+
+---
+
+## Changelog
+
+### Accuracy improvements (agent review)
+
+| Area | Change |
+|---|---|
+| **TTFT (reasoning models)** | Previously used the first *content* token; now uses `min(t_first_content, t_first_reasoning)` so models that emit reasoning tokens before content tokens report correct TTFT |
+| **TPS accuracy** | Returns `None` instead of a word-count proxy when the API does not report `completion_tokens`; prevents misleading cross-model comparisons |
+| **Reasoning token counting** | Reads `completion_tokens_details.reasoning_tokens` from the API response instead of counting stream chunks |
+| **Multi-run all-errors** | Metrics are `None` (not `0.0`) when every run in a multi-run task fails |
+| **pass@k estimator** | Uses the unbiased Chen et al. (2021) estimator instead of a binary any-pass check; allows n > k sampling for better statistical estimates |
+| **Empty code block** | `code_exec` returns score 0.0 with an explicit message when no Python block is found, instead of executing an empty string |
+| **LLM judge prompt injection** | Response is wrapped in `<response>` XML delimiters and truncated to 4,000 chars; `reference` answer truncated to 2,000 chars |
+| **JSONL `model` field** | Now records `model_id` (the actual model name) rather than the backend name |
+| **Composite score categories** | Lookup is now case-insensitive, preventing uncategorised tasks from being silently weighted 1.0 |
 
 ---
 

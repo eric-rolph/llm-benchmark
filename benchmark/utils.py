@@ -20,3 +20,9 @@ _THINK_RE = re.compile(
 def strip_thinking(text: str) -> str:
     """Remove <think>…</think> / <thinking>…</thinking> blocks and strip whitespace."""
     return _THINK_RE.sub("", text).strip()
+
+
+def _avg(values: list) -> float | None:
+    """Return the mean of non-None values, or None if no valid values."""
+    vals = [v for v in values if v is not None]
+    return sum(vals) / len(vals) if vals else None

@@ -9,12 +9,9 @@ from rich import box
 from rich.console import Console
 from rich.table import Table
 
+from benchmark.utils import _avg
+
 console = Console()
-
-
-def _avg(vals: list) -> float | None:
-    vals = [v for v in vals if v is not None]
-    return sum(vals) / len(vals) if vals else None
 
 CATEGORY_WEIGHTS: dict = {
     "coding":                1.5,
@@ -37,7 +34,7 @@ def _composite_score(results: list) -> float | None:
     w_sum = 0.0
     w_tot = 0.0
     for cat, scores in by_cat.items():
-        w = CATEGORY_WEIGHTS.get(cat, 1.0)
+        w = CATEGORY_WEIGHTS.get(cat.lower().strip(), 1.0)
         w_sum += (sum(scores) / len(scores)) * w
         w_tot += w
     return w_sum / w_tot if w_tot > 0 else None
@@ -178,8 +175,9 @@ def append_jsonl(result: dict, path: Path) -> None:
     """
     path.parent.mkdir(parents=True, exist_ok=True)
     record = {
-        "model_id":  result.get("model_id", result.get("backend", "?")),
-        "model":     result.get("backend", "?"),
+        "model_id":  result.get("model_id", "?"),
+        "model":     result.get("model_id", "?"),
+        "backend":   result.get("backend", "?"),
         "task_id":   result["task"]["id"],
         "task_version": result["task"].get("_version"),
         "category":  result["task"]["category"],
@@ -204,7 +202,9 @@ def save_results(all_results: dict, output_dir: str):
     for model, results in all_results.items():
         payload[model] = [
             {
+                "model_id": model,
                 "task_id": r["task"]["id"],
+                "task_version": r["task"].get("_version"),
                 "category": r["task"]["category"],
                 "score": r["score"],
                 "score_detail": r.get("score_detail", ""),
@@ -224,13 +224,14 @@ def save_results(all_results: dict, output_dir: str):
     csv_path = out / f"results_{ts}.csv"
     with open(csv_path, "w", newline="", encoding="utf-8") as f:
         w = csv.writer(f)
-        w.writerow(["model", "task_id", "category", "score",
+        w.writerow(["model", "task_id", "task_version", "category", "score",
                     "tps", "ttft_ms", "total_ms", "score_detail"])
         for model, results in all_results.items():
             for r in results:
                 w.writerow([
                     model,
                     r["task"]["id"],
+                    r["task"].get("_version", ""),
                     r["task"]["category"],
                     r["score"],
                     r.get("tps", ""),

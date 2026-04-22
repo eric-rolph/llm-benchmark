@@ -5,5 +5,8 @@ __pycache__/
 *.pyo
 .env
 
-# If you use real API keys in config.yaml, add it here:
+# config.yaml contains api_key fields.  If you put a real key in it
+# (e.g. for a cloud OpenAI-compatible endpoint), uncomment the line below
+# so it is never committed to version control.  The recommended approach
+# is to use the LLM_BENCH_*_API_KEY environment variable instead.
 # config.yaml

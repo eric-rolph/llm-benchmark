@@ -23,6 +23,7 @@ Quick start:
 from __future__ import annotations
 
 import argparse
+import datetime
 import json
 import sys
 from pathlib import Path
@@ -37,11 +38,62 @@ from benchmark.backends.base import ModelInfo
 from benchmark.loader import load_tasks
 from benchmark.reporter import print_report, print_task_result, save_results, append_jsonl
 from benchmark.runner import ModelRunner
-from benchmark.scorer import score_response
+from benchmark.scorer import score_response, score_pass_at_k
 
 console = Console()
 
 TASK_DIR = Path(__file__).parent / "tasks"
+
+
+def _run_model(
+    model_info: ModelInfo,
+    backend,
+    tasks: list[dict],
+    bench_config: dict,
+    cached_keys: set,
+    jsonl_path: Path,
+    allow_code_exec: bool,
+    no_autoload: bool,
+    judge_client,
+    judge_model: str | None,
+) -> list[dict]:
+    """Run all tasks for one model and return the list of scored results."""
+    runner = ModelRunner(backend, model_info.id, bench_config)
+
+    if backend.config.get("auto_load", False) and not no_autoload:
+        runner.ensure_model_loaded()
+
+    model_results: list = []
+    for task in tasks:
+        if (model_info.id, task["id"]) in cached_keys:
+            console.print(f"  [dim]\u21a9  {task['id']:40s}  (cached \u2014 skipped)[/dim]")
+            continue
+
+        scoring_type = task.get("scoring", {}).get("type")
+        if scoring_type == "pass_at_k":
+            k = task["scoring"].get("k", bench_config.get("runs_per_task", 3))
+            raws = runner.run_task_k(task, k)
+            scored = score_pass_at_k(
+                task, raws,
+                allow_code_exec=allow_code_exec,
+                judge_client=judge_client,
+                judge_model=judge_model,
+            )
+        else:
+            raw = runner.run_task(task)
+            scored = score_response(
+                task, raw,
+                allow_code_exec=allow_code_exec,
+                judge_client=judge_client,
+                judge_model=judge_model,
+            )
+
+        scored["model_id"] = model_info.id
+        model_results.append(scored)
+        print_task_result(scored)
+        append_jsonl(scored, jsonl_path)
+
+    return model_results
 
 
 def _load_config(path: str) -> dict:
@@ -237,8 +289,7 @@ def main():
     all_results: dict = {}
 
     # Incremental JSONL for crash safety (one line per task, written immediately)
-    import datetime as _dt
-    _ts = _dt.datetime.now().strftime("%Y%m%d_%H%M%S")
+    _ts = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
     _out_dir = Path(args.output)
     _out_dir.mkdir(exist_ok=True)
     _resume = bench_config.get("resume", False) or args.resume
@@ -266,47 +317,18 @@ def main():
         label = f"{model_info.id}  [dim]({backend.name})[/dim]"
         console.rule(f"[bold cyan]{label}[/bold cyan]")
 
-        runner = ModelRunner(backend, model_info.id, bench_config)
-
-        auto_load = backend.config.get("auto_load", False)
-        if auto_load and not args.no_autoload:
-            runner.ensure_model_loaded()
-
-        model_results: list = []
-        for task in tasks:
-            # Skip if already cached (--resume mode)
-            if (model_info.id, task["id"]) in _cached_keys:
-                console.print(f"  [dim]↩  {task['id']:40s}  (cached — skipped)[/dim]")
-                continue
-
-            scoring_type = task.get("scoring", {}).get("type")
-            if scoring_type == "pass_at_k":
-                k = task["scoring"].get("k", bench_config.get("runs_per_task", 3))
-                inner_type = task["scoring"].get("inner_type", "code_exec")
-                inner_task = {**task, "scoring": {**task["scoring"], "type": inner_type}}
-                raws = runner.run_task_k(inner_task, k)
-                attempts = [
-                    score_response(inner_task, r, allow_code_exec=args.allow_code_exec,
-                                   judge_client=judge_client, judge_model=judge_model)
-                    for r in raws
-                ]
-                n_passed = sum(1 for s in attempts if s["score"] >= 1.0)
-                best = max(attempts, key=lambda s: s["score"])
-                scored = {
-                    **best,
-                    "task": task,
-                    "score": 1.0 if n_passed > 0 else 0.0,
-                    "score_detail": f"pass@{k}: {n_passed}/{k} attempts passed",
-                }
-            else:
-                raw    = runner.run_task(task)
-                scored = score_response(task, raw, allow_code_exec=args.allow_code_exec,
-                                        judge_client=judge_client, judge_model=judge_model)
-            scored["model_id"] = model_info.id
-            model_results.append(scored)
-            print_task_result(scored)
-            append_jsonl(scored, _jsonl_path)
-
+        model_results = _run_model(
+            model_info=model_info,
+            backend=backend,
+            tasks=tasks,
+            bench_config=bench_config,
+            cached_keys=_cached_keys,
+            jsonl_path=_jsonl_path,
+            allow_code_exec=args.allow_code_exec,
+            no_autoload=args.no_autoload,
+            judge_client=judge_client,
+            judge_model=judge_model,
+        )
         all_results[model_info.id] = model_results
 
         passed   = sum(1 for r in model_results if r["score"] >= 1.0)
