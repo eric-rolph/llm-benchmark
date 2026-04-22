@@ -259,7 +259,10 @@ def _score_json_keys(response: str, scoring: dict):
 
 
 def _score_line_count(response: str, scoring: dict):
-    expected = int(scoring["count"])
+    raw = scoring.get("value", scoring.get("count"))
+    if raw is None:
+        return 0.0, "line_count: no 'value' or 'count' key in scoring definition"
+    expected = int(raw)
     lines = [ln.strip() for ln in response.strip().split("\n") if ln.strip()]
     if len(lines) == expected:
         return 1.0, f"{len(lines)} lines — correct"
