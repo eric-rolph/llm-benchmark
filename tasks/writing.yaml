@@ -18,7 +18,7 @@
     Output only the subject line, no extra text.
   scoring:
     type: regex
-    pattern: "(?i)(meeting|budget|q3|discuss|request)"
+    pattern: "(?i)(meeting|request).{0,40}(budget|q3)|(budget|q3).{0,40}(meeting|request)"
 
 - id: bullet_list_5
   category: writing
@@ -46,7 +46,7 @@
     Output only the tweet text.
   scoring:
     type: regex
-    pattern: "(?i)(bottle|water|smart|launch|new|product)"
+    pattern: "(?i)(smart|water).{0,60}(bottle|launch|new|product)"
 
 - id: numbered_steps
   category: writing
@@ -66,7 +66,7 @@
     Output only the paragraph.
   scoring:
     type: regex
-    pattern: "(?i)(apologize|sorry|apolog|deadline|commit|deliver|regret)"
+    pattern: "(?i)(apologize|sorry|apolog|regret).{0,200}(deadline|due).{0,200}(commit|deliver|ensure|promise)"
 
 - id: product_description_50_words
   category: writing

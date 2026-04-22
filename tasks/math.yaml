@@ -1,90 +1,122 @@
 tasks:
   - id: math_001
     category: math
-    description: "3-digit multiplication"
-    prompt: "Calculate: 347 × 28. Reply with only the number, nothing else."
+    description: "Average speed — harmonic mean trap"
+    prompt: |
+      A car travels from town A to town B at 60 km/h and returns at 40 km/h.
+      What is the average speed for the entire round trip in km/h?
+      Reply with only the number.
     scoring:
       type: numeric
-      answer: 9716
-      tolerance: 0
+      answer: 48
+      tolerance: 0.1
 
   - id: math_002
     category: math
-    description: "Perfect square root"
-    prompt: "What is the square root of 1764? Reply with only the number."
+    description: "Arithmetic sequence nth term"
+    prompt: |
+      In an arithmetic sequence, the 3rd term is 11 and the 9th term is 35.
+      What is the 25th term?
+      Reply with only the number.
     scoring:
       type: numeric
-      answer: 42
+      answer: 99
       tolerance: 0
 
   - id: math_003
     category: math
-    description: "Percentage of a value"
-    prompt: "What is 15% of 240? Reply with only the number."
+    description: "Modular exponentiation"
+    prompt: |
+      What is the remainder when 3^100 is divided by 7?
+      Reply with only the number.
     scoring:
       type: numeric
-      answer: 36
+      answer: 4
       tolerance: 0
 
   - id: math_004
     category: math
-    description: "Power of 2"
-    prompt: "What is 2 to the power of 10? Reply with only the number."
+    description: "Combinatorics — even 4-digit numbers"
+    prompt: |
+      How many 4-digit numbers can be formed using the digits 1, 2, 3, 4, 5
+      with no digit repeated if the number must be even?
+      Reply with only the number.
     scoring:
       type: numeric
-      answer: 1024
+      answer: 48
       tolerance: 0
 
   - id: math_005
     category: math
-    description: "Solve linear equation"
-    prompt: "Solve for x: 3x + 7 = 22. Reply with only the number."
+    description: "Mixture problem"
+    prompt: |
+      A chemist mixes a 30% salt solution with a 10% salt solution to obtain
+      200 mL of an 18% salt solution. How many mL of the 30% solution are needed?
+      Reply with only the number.
     scoring:
       type: numeric
-      answer: 5
+      answer: 80
       tolerance: 0
 
   - id: math_006
     category: math
-    description: "Count primes in range"
-    prompt: "How many prime numbers are there between 10 and 30 inclusive? Reply with only the number."
+    description: "Dice outcomes for target sum"
+    prompt: |
+      How many ways can two standard 6-sided dice show a total of 9?
+      Count ordered pairs (e.g., (3,6) and (6,3) are different).
+      Reply with only the number.
+    scoring:
+      type: numeric
+      answer: 4
+      tolerance: 0
+
+  - id: math_007
+    category: math
+    description: "System of two equations"
+    prompt: |
+      Solve the system of equations:
+        2x + 3y = 12
+        x − y = 1
+      What is the value of x + y?
+      Reply with only the number.
     scoring:
       type: numeric
       answer: 5
       tolerance: 0
 
-  - id: math_007
-    category: math
-    description: "Division word problem"
-    prompt: "A warehouse has 48 boxes. Each pallet holds exactly 6 boxes. How many pallets are needed? Reply with only the number."
-    scoring:
-      type: numeric
-      answer: 8
-      tolerance: 0
-
   - id: math_008
     category: math
-    description: "Polygon interior angles"
-    prompt: "What is the sum of the interior angles of a regular hexagon, in degrees? Reply with only the number."
+    description: "Compound interest"
+    prompt: |
+      A savings account holds $1,000 at 10% annual interest compounded once per year.
+      What is the balance in dollars after 3 years?
+      Reply with only the number.
     scoring:
       type: numeric
-      answer: 720
+      answer: 1331
       tolerance: 0
 
   - id: math_009
     category: math
-    description: "Quadratic sequence next term"
-    prompt: "What comes next in this sequence: 2, 6, 12, 20, 30, ___? Reply with only the number."
+    description: "Successive percentage discounts"
+    prompt: |
+      A jacket costs $80. It goes on sale for 25% off.
+      At checkout, an additional 10% loyalty discount is applied to the sale price.
+      What is the final price in dollars?
+      Reply with only the number.
     scoring:
       type: numeric
-      answer: 42
+      answer: 54
       tolerance: 0
 
   - id: math_010
     category: math
-    description: "Clock angle problem"
-    prompt: "A clock shows exactly 3:15. What is the angle in degrees between the hour hand and the minute hand? Reply with only the number."
+    description: "Triangle angles — three unknowns"
+    prompt: |
+      In a triangle, angle A is twice angle B, and angle C is 30 degrees more than angle A.
+      What is angle B in degrees?
+      Reply with only the number.
     scoring:
       type: numeric
-      answer: 7.5
-      tolerance: 0.5
+      answer: 30
+      tolerance: 0

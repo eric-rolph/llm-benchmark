@@ -1,121 +1,183 @@
 metadata:
-  version: 1
+  version: 2
 
 tasks:
   - id: code_001
     category: coding
-    description: "Fibonacci function"
+    description: "Longest increasing subsequence — length"
     prompt: |
-      Write a Python function called `fibonacci(n)` that returns the nth Fibonacci number (0-indexed).
-      fibonacci(0) = 0, fibonacci(1) = 1, fibonacci(2) = 1, fibonacci(10) = 55.
+      Write a Python function called `longest_increasing_subsequence(nums)` that returns
+      the length of the longest strictly increasing subsequence of a list of integers.
+      longest_increasing_subsequence([10, 9, 2, 5, 3, 7, 101, 18]) == 4
+      longest_increasing_subsequence([0, 1, 0, 3, 2, 3]) == 4
+      longest_increasing_subsequence([7, 7, 7, 7]) == 1
+      longest_increasing_subsequence([]) == 0
       Return only the Python code with no explanation.
     scoring:
       type: code_exec
       test_code: |
-        assert fibonacci(0) == 0,  f"fibonacci(0): expected 0, got {fibonacci(0)}"
-        assert fibonacci(1) == 1,  f"fibonacci(1): expected 1, got {fibonacci(1)}"
-        assert fibonacci(2) == 1,  f"fibonacci(2): expected 1, got {fibonacci(2)}"
-        assert fibonacci(10) == 55, f"fibonacci(10): expected 55, got {fibonacci(10)}"
-        assert fibonacci(15) == 610, f"fibonacci(15): expected 610, got {fibonacci(15)}"
+        assert longest_increasing_subsequence([10, 9, 2, 5, 3, 7, 101, 18]) == 4, \
+               f"got {longest_increasing_subsequence([10, 9, 2, 5, 3, 7, 101, 18])}"
+        assert longest_increasing_subsequence([0, 1, 0, 3, 2, 3]) == 4, \
+               f"got {longest_increasing_subsequence([0, 1, 0, 3, 2, 3])}"
+        assert longest_increasing_subsequence([7, 7, 7, 7]) == 1, \
+               f"got {longest_increasing_subsequence([7, 7, 7, 7])}"
+        assert longest_increasing_subsequence([]) == 0, \
+               f"got {longest_increasing_subsequence([])}"
+        assert longest_increasing_subsequence([1, 2, 3, 4, 5]) == 5, \
+               f"got {longest_increasing_subsequence([1, 2, 3, 4, 5])}"
+        assert longest_increasing_subsequence([5, 4, 3, 2, 1]) == 1, \
+               f"got {longest_increasing_subsequence([5, 4, 3, 2, 1])}"
         print("PASS")
 
   - id: code_002
     category: coding
-    description: "Palindrome checker"
+    description: "Group anagrams"
     prompt: |
-      Write a Python function called `is_palindrome(s)` that returns True if string s is a palindrome.
-      The check must be case-insensitive. Spaces are significant (do not strip them).
+      Write a Python function called `group_anagrams(words)` that groups all anagrams
+      together. Return a list of groups; each group is a sorted list of words. The
+      outer list must also be sorted (by the first element of each group).
+      group_anagrams(["eat","tea","tan","ate","nat","bat"]) == [["ate","eat","tea"],["bat"],["nat","tan"]]
       Return only the Python code with no explanation.
     scoring:
       type: code_exec
       test_code: |
-        assert is_palindrome("racecar") == True
-        assert is_palindrome("Racecar") == True
-        assert is_palindrome("hello")   == False
-        assert is_palindrome("abcba")   == True
-        assert is_palindrome("a")       == True
+        r1 = group_anagrams(["eat", "tea", "tan", "ate", "nat", "bat"])
+        r1_norm = sorted([sorted(g) for g in r1])
+        assert r1_norm == [["ate", "eat", "tea"], ["bat"], ["nat", "tan"]], \
+               f"got {r1_norm}"
+        r2 = group_anagrams([""])
+        assert r2 == [[""]], f"got {r2}"
+        r3 = group_anagrams(["a"])
+        assert r3 == [["a"]], f"got {r3}"
+        r4 = group_anagrams(["abc", "bca", "xyz", "zyx", "cab"])
+        r4_norm = sorted([sorted(g) for g in r4])
+        assert r4_norm == [["abc", "bca", "cab"], ["xyz", "zyx"]], f"got {r4_norm}"
         print("PASS")
 
   - id: code_003
     category: coding
-    description: "Vowel counter"
+    description: "Maximum subarray sum (Kadane's algorithm)"
     prompt: |
-      Write a Python function called `count_vowels(s)` that counts the vowels (a, e, i, o, u) in string s (case-insensitive).
+      Write a Python function called `max_subarray_sum(nums)` that returns the maximum
+      sum of any contiguous subarray (at least one element must be included).
+      max_subarray_sum([-2, 1, -3, 4, -1, 2, 1, -5, 4]) == 6
+      max_subarray_sum([-1, -2, -3]) == -1
+      max_subarray_sum([5, 4, -1, 7, 8]) == 23
       Return only the Python code with no explanation.
     scoring:
       type: code_exec
       test_code: |
-        assert count_vowels("hello")       == 2, f"got {count_vowels('hello')}"
-        assert count_vowels("AEIOU")       == 5, f"got {count_vowels('AEIOU')}"
-        assert count_vowels("rhythm")      == 0, f"got {count_vowels('rhythm')}"
-        assert count_vowels("Programming") == 3, f"got {count_vowels('Programming')}"
+        assert max_subarray_sum([-2, 1, -3, 4, -1, 2, 1, -5, 4]) == 6, \
+               f"got {max_subarray_sum([-2, 1, -3, 4, -1, 2, 1, -5, 4])}"
+        assert max_subarray_sum([1]) == 1, \
+               f"got {max_subarray_sum([1])}"
+        assert max_subarray_sum([-1, -2, -3]) == -1, \
+               f"got {max_subarray_sum([-1, -2, -3])}"
+        assert max_subarray_sum([5, 4, -1, 7, 8]) == 23, \
+               f"got {max_subarray_sum([5, 4, -1, 7, 8])}"
+        assert max_subarray_sum([1, 2, 3, 4, 5]) == 15, \
+               f"got {max_subarray_sum([1, 2, 3, 4, 5])}"
+        assert max_subarray_sum([-5, -1, -8]) == -1, \
+               f"got {max_subarray_sum([-5, -1, -8])}"
         print("PASS")
 
   - id: code_004
     category: coding
-    description: "Binary search"
+    description: "Count islands (DFS/BFS on binary grid)"
     prompt: |
-      Write a Python function called `binary_search(arr, target)` that returns the index of target in the sorted list arr, or -1 if not found.
+      Write a Python function called `count_islands(grid)` where `grid` is a 2-D list
+      of integers (1 = land, 0 = water). Return the number of islands. An island is a
+      group of 1s connected horizontally or vertically.
+      count_islands([[1,1,0],[0,1,0],[0,0,1]]) == 2
       Return only the Python code with no explanation.
     scoring:
       type: code_exec
       test_code: |
-        assert binary_search([1, 3, 5, 7, 9, 11], 7)  == 3
-        assert binary_search([1, 3, 5, 7, 9, 11], 6)  == -1
-        assert binary_search([2], 2)                   == 0
-        assert binary_search([], 1)                    == -1
-        assert binary_search([1, 2, 3, 4, 5], 1)      == 0
+        g1 = [[1,1,1,1,0],[1,1,0,1,0],[1,1,0,0,0],[0,0,0,0,0]]
+        assert count_islands(g1) == 1, f"got {count_islands(g1)}"
+        g2 = [[1,1,0,0,0],[1,1,0,0,0],[0,0,1,0,0],[0,0,0,1,1]]
+        assert count_islands(g2) == 3, f"got {count_islands(g2)}"
+        g3 = [[0,0,0],[0,0,0]]
+        assert count_islands(g3) == 0, f"got {count_islands(g3)}"
+        g4 = [[1]]
+        assert count_islands(g4) == 1, f"got {count_islands(g4)}"
+        g5 = [[1,0,1],[0,1,0],[1,0,1]]
+        assert count_islands(g5) == 5, f"got {count_islands(g5)}"
         print("PASS")
 
   - id: code_005
     category: coding
-    description: "Flatten nested list one level"
+    description: "Two-sum returning sorted index pair"
     prompt: |
-      Write a Python function called `flatten(lst)` that flattens a nested list exactly one level deep.
-      Example: flatten([[1, 2], [3, 4], [5]]) returns [1, 2, 3, 4, 5].
+      Write a Python function called `two_sum(nums, target)` that returns a list
+      [i, j] (with i < j) such that nums[i] + nums[j] == target. Exactly one
+      solution is guaranteed to exist.
+      two_sum([2, 7, 11, 15], 9) == [0, 1]
+      two_sum([3, 2, 4], 6) == [1, 2]
       Return only the Python code with no explanation.
     scoring:
       type: code_exec
       test_code: |
-        assert flatten([[1, 2], [3, 4], [5]])  == [1, 2, 3, 4, 5]
-        assert flatten([[], [1], [2, 3]])       == [1, 2, 3]
-        assert flatten([[1, 2, 3]])             == [1, 2, 3]
-        assert flatten([])                      == []
+        assert two_sum([2, 7, 11, 15], 9)   == [0, 1], f"got {two_sum([2,7,11,15],9)}"
+        assert two_sum([3, 2, 4], 6)         == [1, 2], f"got {two_sum([3,2,4],6)}"
+        assert two_sum([3, 3], 6)            == [0, 1], f"got {two_sum([3,3],6)}"
+        assert two_sum([1, 5, 3, 4], 8)      == [1, 2], f"got {two_sum([1,5,3,4],8)}"
+        assert two_sum([-1, -2, -3, -4], -6) == [1, 3], f"got {two_sum([-1,-2,-3,-4],-6)}"
         print("PASS")
 
   - id: code_006
     category: coding
-    description: "Caesar cipher"
+    description: "Balanced brackets checker"
     prompt: |
-      Write a Python function called `caesar_cipher(text, shift)` that applies a Caesar cipher.
-      Only shift alphabetic characters; preserve case and leave non-alphabetic characters unchanged.
-      The shift wraps around (z + 1 = a).
+      Write a Python function called `is_balanced(s)` that returns True if every
+      opening bracket (, [, or { in string s has a matching closing bracket in
+      correct nested order, and False otherwise. Non-bracket characters are ignored.
+      is_balanced("()[]{}")  == True
+      is_balanced("([{}])")  == True
+      is_balanced("([)]")    == False
+      is_balanced("")        == True
       Return only the Python code with no explanation.
     scoring:
       type: code_exec
       test_code: |
-        assert caesar_cipher("Hello, World!", 3) == "Khoor, Zruog!"
-        assert caesar_cipher("abc", 1)           == "bcd"
-        assert caesar_cipher("xyz", 3)           == "abc"
-        assert caesar_cipher("ABC", 25)          == "ZAB"
-        assert caesar_cipher("Hello!", 0)        == "Hello!"
+        assert is_balanced("()[]{}"),         "()[]{}"
+        assert is_balanced("([{}])"),         "([{}])"
+        assert is_balanced("{[]}"),           "{[]}"
+        assert is_balanced(""),               "empty"
+        assert is_balanced("abc(def[ghi])"),  "mixed chars"
+        assert not is_balanced("(]"),         "(]"
+        assert not is_balanced("([)]"),       "([)]"
+        assert not is_balanced("(("),         "(("
+        assert not is_balanced("{"),          "{"
+        assert not is_balanced(")"),          ")"
         print("PASS")
 
   - id: code_007
     category: coding
-    description: "Word frequency counter"
+    description: "Merge overlapping intervals"
     prompt: |
-      Write a Python function called `word_frequency(text)` that splits text on whitespace and returns a dict mapping each unique word (lowercased) to its count.
+      Write a Python function called `merge_intervals(intervals)` that takes a list of
+      [start, end] pairs and merges all overlapping (or touching) intervals. Return the
+      merged list sorted by start time.
+      merge_intervals([[1,3],[2,6],[8,10],[15,18]]) == [[1,6],[8,10],[15,18]]
+      merge_intervals([[1,4],[4,5]]) == [[1,5]]
       Return only the Python code with no explanation.
     scoring:
       type: code_exec
       test_code: |
-        result = word_frequency("the cat sat on the mat the cat")
-        assert result["the"] == 3,   f"the: {result.get('the')}"
-        assert result["cat"] == 2,   f"cat: {result.get('cat')}"
-        assert result["sat"] == 1,   f"sat: {result.get('sat')}"
-        assert result["mat"] == 1,   f"mat: {result.get('mat')}"
-        assert result["on"]  == 1,   f"on:  {result.get('on')}"
+        assert merge_intervals([[1,3],[2,6],[8,10],[15,18]]) == [[1,6],[8,10],[15,18]], \
+               f"got {merge_intervals([[1,3],[2,6],[8,10],[15,18]])}"
+        assert merge_intervals([[1,4],[4,5]]) == [[1,5]], \
+               f"got {merge_intervals([[1,4],[4,5]])}"
+        assert merge_intervals([[1,4]]) == [[1,4]], \
+               f"got {merge_intervals([[1,4]])}"
+        assert merge_intervals([]) == [], \
+               f"got {merge_intervals([])}"
+        assert merge_intervals([[1,10],[2,3],[4,8]]) == [[1,10]], \
+               f"got {merge_intervals([[1,10],[2,3],[4,8]])}"
+        assert merge_intervals([[6,8],[1,9],[2,4]]) == [[1,9]], \
+               f"got {merge_intervals([[6,8],[1,9],[2,4]])}"
         print("PASS")
 
   - id: code_008

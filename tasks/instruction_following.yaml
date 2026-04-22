@@ -35,19 +35,22 @@ tasks:
 
   - id: instruct_005
     category: instruction_following
-    description: "Translation"
-    prompt: "Translate 'Good morning, how are you?' to Spanish. Respond with only the translation and nothing else."
+    description: "Exact word-count sentence"
+    prompt: |
+      Write a sentence that is exactly 10 words long.
+      Output only the sentence, nothing else.
     scoring:
-      type: contains
-      answer: "buenos"
+      type: word_count
+      min: 10
+      max: 10
 
   - id: instruct_006
     category: instruction_following
-    description: "Chemical symbol recall"
-    prompt: "What is the chemical symbol for gold? Reply with only the two-letter symbol and nothing else."
+    description: "Element name from non-obvious symbol"
+    prompt: "What is the name of the chemical element whose symbol is 'W'? Output only the element name, nothing else."
     scoring:
-      type: exact
-      answer: "Au"
+      type: contains
+      answer: "tungsten"
 
   - id: instruct_007
     category: instruction_following
@@ -59,11 +62,13 @@ tasks:
 
   - id: instruct_008
     category: instruction_following
-    description: "Reverse-order list"
-    prompt: "List the months of the year in reverse order starting with December and ending with January, separated by commas. No other text."
+    description: "Binary conversion — no prefix"
+    prompt: |
+      Convert the number 42 to binary. Output only the binary digits with no prefix
+      (do not write '0b' or anything else — just the digits).
     scoring:
-      type: contains
-      answer: "December"
+      type: exact
+      answer: "101010"
 
   - id: instruct_009
     category: instruction_following

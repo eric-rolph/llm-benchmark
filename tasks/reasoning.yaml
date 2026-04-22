@@ -1,74 +1,111 @@
 tasks:
   - id: reason_001
     category: reasoning
-    description: "Sheep trick question"
-    prompt: "A farmer has 17 sheep. All but 9 die. How many sheep are left? Reply with only the number."
+    description: "5-runner race deduction — jersey colour position"
+    prompt: |
+      Five runners finished a race wearing different coloured jerseys: Red, Blue, Green, Yellow, White.
+      - Blue finished immediately after Red (Blue's position = Red's position + 1).
+      - Green finished last (5th place).
+      - White finished first (1st place).
+      - Yellow did not finish last or second.
+      - Red did not finish first.
+      In what position did Red finish? Reply with only the number (1–5).
     scoring:
       type: numeric
-      answer: 9
+      answer: 2
       tolerance: 0
 
   - id: reason_002
     category: reasoning
-    description: "Machines-widgets scaling puzzle"
-    prompt: "If it takes 5 machines 5 minutes to make 5 widgets, how long in minutes does it take 100 machines to make 100 widgets? Reply with only the number."
+    description: "4-person job deduction"
+    prompt: |
+      Four people — Ann, Bob, Carl, and Dee — each have a different job:
+      doctor, teacher, chef, or programmer.
+      - Ann is not the doctor.
+      - Bob is neither the teacher nor the doctor.
+      - Carl is the programmer.
+      - Dee is not the teacher.
+      Who is the doctor? Reply with only the person's name.
     scoring:
-      type: numeric
-      answer: 5
-      tolerance: 0
+      type: contains
+      answer: "dee"
 
   - id: reason_003
     category: reasoning
-    description: "Valid syllogism"
-    prompt: "All dogs are mammals. All mammals are warm-blooded. Therefore, are all dogs warm-blooded? Reply with only Yes or No."
+    description: "Doubling-plus-one sequence"
+    prompt: |
+      What is the next number in this sequence: 3, 7, 15, 31, 63, ___?
+      Reply with only the number.
     scoring:
-      type: contains
-      answer: "yes"
+      type: numeric
+      answer: 127
+      tolerance: 0
 
   - id: reason_004
     category: reasoning
-    description: "Compound probability"
-    prompt: "A biased coin lands heads 60% of the time. What is the probability of getting 2 heads in a row? Reply with only the decimal value (e.g. 0.36)."
+    description: "Pipe fill/drain rate"
+    prompt: |
+      Pipe A fills a tank in 4 hours. Pipe B fills it in 6 hours.
+      A drain empties the full tank in 12 hours.
+      If all three are open simultaneously, how many hours does it take to fill the tank?
+      Reply with only the number.
     scoring:
       type: numeric
-      answer: 0.36
-      tolerance: 0.01
+      answer: 3
+      tolerance: 0
 
   - id: reason_005
     category: reasoning
-    description: "Triangular number sequence"
-    prompt: "What is the next number in this sequence: 1, 3, 6, 10, 15, ___? Reply with only the number."
+    description: "Day-of-week arithmetic"
+    prompt: |
+      Today is Wednesday. A project is due in 25 days.
+      What day of the week is the due date?
+      Reply with only the day name.
     scoring:
-      type: numeric
-      answer: 21
-      tolerance: 0
+      type: contains
+      answer: "sunday"
 
   - id: reason_006
     category: reasoning
-    description: "Tower of Hanoi minimum moves"
-    prompt: "What is the minimum number of moves required to solve the Tower of Hanoi puzzle with 3 disks? Reply with only the number."
+    description: "5-student score ordering"
+    prompt: |
+      Five students — Alex, Ben, Cara, Dee, and Eve — received distinct scores from
+      the set {60, 70, 80, 90, 100} on an exam.
+      - Dee scored the highest.
+      - Eve scored 70.
+      - Ben scored the lowest.
+      - Cara scored exactly 20 more than Ben.
+      - Alex scored more than Cara.
+      What was Alex's score? Reply with only the number.
     scoring:
       type: numeric
-      answer: 7
+      answer: 90
       tolerance: 0
 
   - id: reason_007
     category: reasoning
-    description: "Deductive logic — pets"
+    description: "5-fruit price ranking"
     prompt: |
-      Alice, Bob, and Carol each own exactly one pet: a cat, a dog, or a fish.
-      - Alice does not have the dog.
-      - Bob does not have the cat.
-      - Carol has the fish.
-      What pet does Alice have? Reply with only the pet name.
+      Five fruits — mango, pear, orange, kiwi, and peach — are priced differently.
+      - Mango costs more than pear.
+      - Kiwi costs less than orange.
+      - Pear costs more than kiwi.
+      - Orange is the 3rd most expensive.
+      - Peach costs more than mango.
+      What is pear's rank from most expensive to least (1 = most expensive)?
+      Reply with only the number.
     scoring:
-      type: contains
-      answer: "cat"
+      type: numeric
+      answer: 4
+      tolerance: 0
 
   - id: reason_008
     category: reasoning
-    description: "Increasing-gap letter sequence"
-    prompt: "What letter comes next: A, C, F, J, O, ___? Reply with only the letter."
+    description: "Knights and knaves — self-referential claim"
+    prompt: |
+      On an island, knights always tell the truth and knaves always lie.
+      Alex says: "We are both knaves." (referring to Alex and Sam)
+      Is Alex a knight or a knave? Reply with only 'knight' or 'knave'.
     scoring:
       type: contains
-      answer: "U"
+      answer: "knave"

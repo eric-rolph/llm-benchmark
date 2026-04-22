@@ -30,7 +30,7 @@
     upcoming Series B."
   scoring:
     type: regex
-    pattern: "(?i)(\\$5|5 million|\\$22|22 million|\\$150|150 million|\\$40|40 million)"
+    pattern: "(?i)(\\$5|5 million).{0,20}\n?.{0,20}(\\$22|22 million).{0,20}\n?.{0,20}(\\$150|150 million).{0,20}\n?.{0,20}(\\$40|40 million)"
 
 - id: tldr_article
   category: summarization
@@ -78,7 +78,7 @@
     Output only the headline.
   scoring:
     type: regex
-    pattern: "(?i)(battery|charg|stanford|smartphone|five minutes|fast|rapid|new)"
+    pattern: "(?i)(battery|charg).{0,60}(stanford|smartphone|fast|rapid|new|speed)"
 
 - id: main_point_philosophy
   category: summarization

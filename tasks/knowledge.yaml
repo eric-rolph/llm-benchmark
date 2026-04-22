@@ -1,6 +1,6 @@
-# tasks/knowledge.yaml — World knowledge, factual recall
-# Scoring: contains (case-insensitive substring match)
-# Goal: test factual accuracy and recall
+# tasks/knowledge.yaml — World knowledge, factual recall (harder)
+# Scoring: numeric, exact, contains
+# Goal: test facts that require genuine knowledge beyond grade-school trivia
 
 - id: capital_france
   category: knowledge
@@ -9,95 +9,98 @@
     type: contains
     value: "paris"
 
-- id: capital_japan
+- id: element_tungsten
   category: knowledge
-  prompt: "What is the capital of Japan? Answer with just the city name."
-  scoring:
-    type: contains
-    value: "tokyo"
-
-- id: capital_brazil
-  category: knowledge
-  prompt: "What is the capital of Brazil? Answer with just the city name."
-  scoring:
-    type: contains
-    value: "brasilia"
-
-- id: element_gold
-  category: knowledge
-  prompt: "What is the chemical symbol for gold? Answer with just the symbol."
+  prompt: "What is the chemical symbol for tungsten? Answer with just the symbol."
   scoring:
     type: exact
-    value: "Au"
+    value: "W"
 
-- id: element_iron
+- id: atomic_number_gold
   category: knowledge
-  prompt: "What is the chemical symbol for iron? Answer with just the symbol."
-  scoring:
-    type: exact
-    value: "Fe"
-
-- id: speed_of_light
-  category: knowledge
-  prompt: "What is the approximate speed of light in a vacuum in km/s? Give just the number (round to nearest 1000)."
+  prompt: "What is the atomic number of gold? Answer with just the number."
   scoring:
     type: numeric
-    value: 300000
-    tolerance: 5000
-
-- id: human_chromosomes
-  category: knowledge
-  prompt: "How many chromosomes does a typical human have? Answer with just the number."
-  scoring:
-    type: numeric
-    value: 46
+    value: 79
     tolerance: 0
 
-- id: planet_count
+- id: berlin_wall_fall
   category: knowledge
-  prompt: "How many planets are in our solar system? Answer with just the number."
+  prompt: "In what year did the Berlin Wall fall? Answer with just the year."
   scoring:
     type: numeric
-    value: 8
+    value: 1989
     tolerance: 0
 
-- id: shakespeare_hamlet
+- id: byzantine_empire_fall
   category: knowledge
-  prompt: "Who wrote the play Hamlet? Answer with just the author's name."
+  prompt: "In what year did the Byzantine Empire fall? Answer with just the year."
+  scoring:
+    type: numeric
+    value: 1453
+    tolerance: 0
+
+- id: carbon14_halflife
+  category: knowledge
+  prompt: "What is the approximate half-life of Carbon-14 in years? Round to the nearest hundred."
+  scoring:
+    type: numeric
+    value: 5730
+    tolerance: 100
+
+- id: human_adult_bones
+  category: knowledge
+  prompt: "How many bones does a typical adult human body have? Answer with just the number."
+  scoring:
+    type: numeric
+    value: 206
+    tolerance: 0
+
+- id: mars_moons
+  category: knowledge
+  prompt: "How many moons does Mars have? Answer with just the number."
+  scoring:
+    type: numeric
+    value: 2
+    tolerance: 0
+
+- id: fourth_noble_gas
+  category: knowledge
+  prompt: "What is the name of the fourth element in the noble gas group (Group 18) of the periodic table? Answer with just the element name."
   scoring:
     type: contains
-    value: "shakespeare"
+    value: "krypton"
 
-- id: water_boiling_point
+- id: higgs_boson_year
   category: knowledge
-  prompt: "At standard atmospheric pressure, at what temperature (Celsius) does water boil? Answer with just the number."
+  prompt: "In what year was the discovery of the Higgs boson experimentally confirmed at CERN? Answer with just the year."
   scoring:
     type: numeric
-    value: 100
+    value: 2012
     tolerance: 0
 
-- id: moon_distance
+- id: smallest_prime_gt100
   category: knowledge
-  prompt: "Approximately how far is the Moon from Earth in kilometers? Give a number between 350000 and 410000."
+  prompt: "What is the smallest prime number greater than 100? Answer with just the number."
   scoring:
     type: numeric
-    value: 384400
-    tolerance: 30000
-
-- id: world_war_2_end
-  category: knowledge
-  prompt: "In what year did World War II end? Answer with just the year."
-  scoring:
-    type: numeric
-    value: 1945
+    value: 101
     tolerance: 0
 
-- id: dna_bases
+- id: treaty_versailles
   category: knowledge
-  prompt: "How many unique nitrogenous bases are in DNA? Answer with just the number."
+  prompt: "What is the name of the treaty that formally ended World War I? Answer with just the treaty name (no article)."
+  scoring:
+    type: contains
+    value: "versailles"
+
+- id: dna_strands
+  category: knowledge
+  prompt: "How many strands make up the double helix structure of DNA? Answer with just the number."
   scoring:
     type: numeric
-    value: 4
+    value: 2
+    tolerance: 0
     tolerance: 0
 
 - id: largest_ocean
