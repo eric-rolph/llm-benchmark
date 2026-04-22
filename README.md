@@ -331,6 +331,14 @@ The summary table now includes a **Composite ★** row — a weighted average ac
 | **LLM judge prompt injection** | Response is wrapped in `<response>` XML delimiters and truncated to 4,000 chars; `reference` answer truncated to 2,000 chars |
 | **JSONL `model` field** | Now records `model_id` (the actual model name) rather than the backend name |
 | **Composite score categories** | Lookup is now case-insensitive, preventing uncategorised tasks from being silently weighted 1.0 |
+| **`line_count` key** | Scorer now accepts both `value` and `count` YAML keys (some tasks used `count`) |
+
+### Bug fixes (live-run validation)
+
+| Area | Change |
+|---|---|
+| **Accent-insensitive `contains`** | `_score_contains` now normalises both needle and haystack with NFKD Unicode decomposition before comparison, so e.g. `"brasilia"` matches `"Brasília"` |
+| **Sentence-based writing tasks** | Tasks that ask for "N sentences" now instruct the model to output one sentence per line, making `line_count` scoring reliable |
 
 ---
 

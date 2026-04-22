@@ -23,6 +23,7 @@ import re
 import subprocess
 import sys
 import tempfile
+import unicodedata
 
 from benchmark.utils import strip_thinking
 
@@ -181,10 +182,15 @@ def _score_exact(response: str, scoring: dict):
     return 0.0, f"Got '{response.strip()}', expected '{raw}'"
 
 
+def _normalize(s: str) -> str:
+    """Lowercase and strip diacritics for accent-insensitive comparison."""
+    return unicodedata.normalize("NFKD", s.lower()).encode("ascii", "ignore").decode("ascii")
+
+
 def _score_contains(response: str, scoring: dict):
     raw = scoring.get("answer", scoring.get("value", ""))
-    needle = str(raw).lower()
-    if needle in response.lower():
+    needle = _normalize(str(raw))
+    if needle in _normalize(response):
         return 1.0, f"Contains '{raw}'"
     return 0.0, f"Missing '{raw}'"
 

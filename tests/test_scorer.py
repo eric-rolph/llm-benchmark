@@ -110,6 +110,16 @@ class TestContains:
         s, _ = score({"type": "contains", "value": "PARIS"}, "The capital is paris")
         assert s == 1.0
 
+    def test_accent_insensitive_needle(self):
+        # Task stores unaccented needle; model response contains accented character
+        s, _ = score({"type": "contains", "value": "brasilia"}, "The capital is Brasília.")
+        assert s == 1.0
+
+    def test_accent_insensitive_response(self):
+        # Needle contains accent; response is unaccented
+        s, _ = score({"type": "contains", "value": "Brasília"}, "The capital is Brasilia.")
+        assert s == 1.0
+
 
 # ── contains_n ────────────────────────────────────────────────────────────────
 

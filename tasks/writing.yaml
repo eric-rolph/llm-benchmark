@@ -72,7 +72,7 @@
   category: writing
   prompt: |
     Write a product description for wireless noise-cancelling headphones in exactly 2 sentences.
-    Output only the 2 sentences.
+    Output one sentence per line. Output only the 2 lines, nothing else.
   scoring:
     type: line_count
     value: 2
@@ -91,7 +91,7 @@
   category: writing
   prompt: |
     Explain what a blockchain is in exactly 3 sentences.
-    Output only those 3 sentences, nothing else.
+    Output one sentence per line. Output only those 3 lines, nothing else.
   scoring:
     type: line_count
     value: 3
