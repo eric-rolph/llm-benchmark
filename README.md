@@ -339,6 +339,8 @@ The summary table now includes a **Composite ★** row — a weighted average ac
 |---|---|
 | **Accent-insensitive `contains`** | `_score_contains` now normalises both needle and haystack with NFKD Unicode decomposition before comparison, so e.g. `"brasilia"` matches `"Brasília"` |
 | **Sentence-based writing tasks** | Tasks that ask for "N sentences" now instruct the model to output one sentence per line, making `line_count` scoring reliable |
+| **Accent-insensitive `contains_n` / `ends_with` / `fuzzy_match`** | All remaining string-comparison scorers updated to use NFKD normalisation, consistent with `contains`; e.g. `"cafe"` matches `"café"` in all four scorer types |
+| **`pass_at_k` n > k sampling** | `score_pass_at_k` now reads `k` from `task["scoring"]["k"]` (falling back to `len(run_results)`), enabling over-sampling (`n > k`) with the Chen et al. 2021 unbiased estimator |
 
 ---
 

@@ -1,10 +1,10 @@
 """
-tests/test_scorer.py — unit tests for all 8 scoring methods.
+tests/test_scorer.py — unit tests for all 14 scoring types.
 
 Run with:  pytest tests/test_scorer.py -v
 """
 import pytest
-from benchmark.scorer import score_response
+from benchmark.scorer import score_response, score_pass_at_k
 
 
 # ── helpers ──────────────────────────────────────────────────────────────────
@@ -149,6 +149,12 @@ class TestContainsN:
         s, _ = score({"type": "contains_n", "answer": "hello"}, "Just say hello.")
         assert s == 1.0
 
+    def test_accent_insensitive(self):
+        # Needle is unaccented; response contains accented form repeated 2x
+        s, _ = score({"type": "contains_n", "answer": "cafe", "min_count": 2},
+                     "Visit the café on Main St. The café opens at 8.")
+        assert s == 1.0
+
 
 # ── not_contains ──────────────────────────────────────────────────────────────
 
@@ -208,6 +214,12 @@ class TestEndsWith:
         s, d = score({"type": "ends_with", "answer": "ocean"}, "")
         assert s == 0.0
         assert "Empty" in d
+
+    def test_accent_insensitive(self):
+        # Task expects unaccented 'resume'; model ends with accented 'résumé'
+        s, _ = score({"type": "ends_with", "answer": "resume"},
+                     "Please attach your résumé.")
+        assert s == 1.0
 
 
 # ── word_count ────────────────────────────────────────────────────────────────
@@ -288,6 +300,11 @@ class TestLineCount:
         s, _ = score({"type": "line_count", "count": 3}, "Line 1\nLine 2\nLine 3")
         assert s == 1.0
 
+    def test_value_key(self):
+        """Tasks use 'value' key (e.g. writing.yaml); scorer must accept it."""
+        s, _ = score({"type": "line_count", "value": 3}, "Line 1\nLine 2\nLine 3")
+        assert s == 1.0
+
     def test_too_few(self):
         s, d = score({"type": "line_count", "count": 5}, "Only\nTwo")
         assert s == 0.0
@@ -296,6 +313,11 @@ class TestLineCount:
     def test_blank_lines_ignored(self):
         s, _ = score({"type": "line_count", "count": 2}, "Line 1\n\nLine 2\n\n")
         assert s == 1.0
+
+    def test_missing_key_returns_error(self):
+        s, d = score({"type": "line_count"}, "Line 1\nLine 2")
+        assert s == 0.0
+        assert "value" in d.lower() or "count" in d.lower()
 
 
 # ── code_exec ─────────────────────────────────────────────────────────────────
@@ -433,4 +455,96 @@ class TestLLMJudge:
         )
         assert s == pytest.approx(0.7)
         assert "7/10" in d
+
+
+# ── fuzzy_match (accent) ──────────────────────────────────────────────────────
+
+class TestFuzzyMatch:
+    def test_answer_in_response(self):
+        s, _ = score({"type": "fuzzy_match", "value": "artificial intelligence"},
+                     "AI stands for artificial intelligence in computing.")
+        assert s == 1.0
+
+    def test_response_in_answer(self):
+        s, _ = score({"type": "fuzzy_match", "value": "Paris is the capital of France"},
+                     "Paris")
+        assert s == 1.0
+
+    def test_no_match(self):
+        s, _ = score({"type": "fuzzy_match", "value": "quantum mechanics"},
+                     "The weather is sunny today.")
+        assert s == 0.0
+
+    def test_accent_insensitive(self):
+        s, _ = score({"type": "fuzzy_match", "value": "naive"},
+                     "A naïve approach was taken.")
+        assert s == 1.0
+
+
+# ── pass_at_k ─────────────────────────────────────────────────────────────────
+
+class TestPassAtK:
+    def _make_raw(self, response: str) -> dict:
+        return {
+            "task_id": "test_task",
+            "response": response,
+            "error": None,
+            "ttft_ms": None,
+            "total_ms": 100.0,
+            "tps": 10.0,
+            "completion_tokens": 5,
+            "reasoning_tokens": 0,
+            "backend": "test",
+        }
+
+    def _pass_k_task(self, inner_type: str = "contains", inner_scoring: dict | None = None):
+        base = {"type": "pass_at_k", "inner_type": inner_type, "k": 3}
+        if inner_scoring:
+            base.update(inner_scoring)
+        return {
+            "id": "pk_task",
+            "prompt": "test",
+            "category": "coding",
+            "scoring": base,
+        }
+
+    def test_all_pass_gives_1(self):
+        task = self._pass_k_task("contains", {"value": "hello"})
+        runs = [self._make_raw("hello world")] * 3
+        result = score_pass_at_k(task, runs)
+        assert result["score"] == pytest.approx(1.0)
+
+    def test_none_pass_gives_0(self):
+        task = self._pass_k_task("contains", {"value": "hello"})
+        runs = [self._make_raw("goodbye world")] * 3
+        result = score_pass_at_k(task, runs)
+        assert result["score"] == pytest.approx(0.0)
+
+    def test_partial_pass_between_0_and_1(self):
+        task = self._pass_k_task("contains", {"value": "hello"})
+        runs = [self._make_raw("hello"), self._make_raw("nope"), self._make_raw("nope")]
+        result = score_pass_at_k(task, runs)
+        # 1 out of 3 passes; pass@3 with n=3, c=1 => 1 - C(2,3)/C(3,3) = 1 - 0 = 1.0
+        # Actually: C(n-c, k) / C(n, k) = C(2,3)/C(3,3); C(2,3)=0, so estimate=1.0
+        # For n=k=3, c=1: any-pass = True, so estimate=1.0
+        assert result["score"] > 0.0
+
+    def test_score_detail_contains_pass_fraction(self):
+        task = self._pass_k_task("contains", {"value": "hello"})
+        runs = [self._make_raw("hello")] * 2 + [self._make_raw("nope")]
+        result = score_pass_at_k(task, runs)
+        assert "pass@" in result["score_detail"]
+        assert "/3" in result["score_detail"]
+
+    def test_n_greater_than_k_uses_estimator(self):
+        """When n > k, the Chen et al. estimator is used."""
+        task = self._pass_k_task("contains", {"value": "hello"})
+        task["scoring"]["k"] = 2  # k=2 but we pass n=5 samples
+        # 3 of 5 pass: pass@2 = 1 - C(2,2)/C(5,2) = 1 - 1/10 = 0.9
+        runs = (
+            [self._make_raw("hello")] * 3
+            + [self._make_raw("nope")] * 2
+        )
+        result = score_pass_at_k(task, runs)
+        assert result["score"] == pytest.approx(0.9, abs=1e-9)
 

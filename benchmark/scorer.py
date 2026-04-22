@@ -196,12 +196,13 @@ def _score_contains(response: str, scoring: dict):
 
 
 def _score_contains_n(response: str, scoring: dict):
-    needle = str(scoring.get("answer", scoring.get("value", ""))).lower()
+    raw = str(scoring.get("answer", scoring.get("value", "")))
+    needle = _normalize(raw)
     min_count = int(scoring.get("min_count", 1))
-    count = response.lower().count(needle)
+    count = _normalize(response).count(needle)
     if count >= min_count:
-        return 1.0, f"'{needle}' appears {count}x (min {min_count})"
-    return 0.0, f"'{needle}' appears {count}x, need at least {min_count}"
+        return 1.0, f"'{raw}' appears {count}x (min {min_count})"
+    return 0.0, f"'{raw}' appears {count}x, need at least {min_count}"
 
 
 def _score_not_contains(response: str, scoring: dict):
@@ -213,23 +214,25 @@ def _score_not_contains(response: str, scoring: dict):
 
 
 def _score_ends_with(response: str, scoring: dict):
-    expected = str(scoring.get("answer", scoring.get("value", ""))).strip().lower()
+    raw = str(scoring.get("answer", scoring.get("value", ""))).strip()
+    expected = _normalize(raw)
     lines = [ln.strip() for ln in response.strip().split("\n") if ln.strip()]
     if not lines:
         return 0.0, "Empty response"
-    last_line = lines[-1].rstrip(".,!?;:").lower()
+    last_line = _normalize(lines[-1].rstrip(".,!?;:"))
     last_word = last_line.split()[-1] if last_line.split() else ""
     if last_word == expected:
-        return 1.0, f"Response ends with '{expected}'"
-    return 0.0, f"Last word: '{last_word}', expected '{expected}'"
+        return 1.0, f"Response ends with '{raw}'"
+    return 0.0, f"Last word: '{last_word}', expected '{raw}'"
 
 
 def _score_fuzzy_match(response: str, scoring: dict):
-    answer = str(scoring.get("answer", scoring.get("value", ""))).strip().lower()
-    resp = response.strip().lower()
+    raw = str(scoring.get("answer", scoring.get("value", ""))).strip()
+    answer = _normalize(raw)
+    resp = _normalize(response.strip())
     if answer in resp or resp in answer:
-        return 1.0, f"fuzzy_match: '{answer[:60]}' ↔ response"
-    return 0.0, f"fuzzy_match failed: expected '{answer[:60]}'"
+        return 1.0, f"fuzzy_match: '{raw[:60]}' ↔ response"
+    return 0.0, f"fuzzy_match failed: expected '{raw[:60]}'"
 
 
 def _score_word_count(response: str, scoring: dict):
@@ -361,13 +364,20 @@ def score_pass_at_k(
     judge_model: str | None = None,
 ) -> dict:
     """
-    Score a pass@k task given k raw run results.
+    Score a pass@k task given n raw run results.
 
-    The outer task uses scoring.type == "pass_at_k".  Each of the k raw results
-    is scored with the inner_type (default: code_exec).  The task passes if ANY
-    attempt achieves a perfect score.
+    The outer task uses scoring.type == "pass_at_k".  Each of the n raw results
+    is scored with the inner_type (default: code_exec).
+
+    k is read from task["scoring"]["k"] (falls back to n so old callers that
+    generate exactly k samples are unaffected).  Generating n > k samples and
+    using the Chen et al. 2021 estimator yields more reliable estimates without
+    increasing the committed sample count.
     """
-    k = len(run_results)
+    n = len(run_results)
+    k = task["scoring"].get("k", n)  # target k for estimator; default to n (= current behaviour)
+    if k > n:
+        raise ValueError(f"pass_at_k: k={k} > n={n} (cannot estimate pass@{k} from {n} samples)")
     inner_type = task["scoring"].get("inner_type", "code_exec")
     inner_task = {**task, "scoring": {**task["scoring"], "type": inner_type}}
     attempts = [
@@ -375,10 +385,9 @@ def score_pass_at_k(
                        judge_client=judge_client, judge_model=judge_model)
         for r in run_results
     ]
-    n = len(attempts)
     c = sum(1 for s in attempts if s["score"] >= 1.0)
     # Unbiased pass@k estimator (Chen et al. 2021).
-    # When n == k this equals the binary any-pass check, but is correct
+    # When n == k this equals the binary any-pass check, but is more efficient
     # for n > k when more samples are generated than committed to.
     from math import comb as _comb
     estimate = 1.0 if (n - c) < k else 1.0 - _comb(n - c, k) / _comb(n, k)

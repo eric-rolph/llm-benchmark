@@ -72,6 +72,24 @@ def test_validate_task_raises_on_missing_prompt():
         _validate_task({"id": "x", "category": "y", "scoring": {}}, "test.yaml", 0)
 
 
+def test_validate_task_raises_on_missing_category():
+    with pytest.raises(ValueError, match="missing required fields"):
+        _validate_task({"id": "x", "prompt": "q", "scoring": {}}, "test.yaml", 0)
+
+
+def test_validate_task_raises_on_missing_scoring():
+    with pytest.raises(ValueError, match="missing required fields"):
+        _validate_task({"id": "x", "prompt": "q", "category": "math"}, "test.yaml", 0)
+
+
 def test_validate_task_passes_with_all_required():
     # Should not raise
     _validate_task({"id": "x", "prompt": "q", "category": "math", "scoring": {"type": "numeric"}}, "test.yaml", 0)
+
+
+def test_bare_list_yaml_tasks_have_no_version():
+    """Tasks from bare-list YAML files (no metadata block) must have _version=None."""
+    tasks = load_tasks()
+    # knowledge.yaml, writing.yaml, etc. are bare lists — their tasks should not have _version
+    bare_tasks = [t for t in tasks if t.get("_version") is None]
+    assert len(bare_tasks) > 0, "Expected some tasks without a _version (from bare-list YAML files)"
