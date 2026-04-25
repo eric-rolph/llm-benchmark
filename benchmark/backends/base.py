@@ -8,6 +8,7 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from urllib.parse import urlparse, urlunparse
 
+import requests
 from openai import OpenAI
 
 
@@ -98,3 +99,40 @@ class Backend(ABC):
         if url.endswith("/v1"):
             url = url[:-3]
         return url.rstrip("/")
+
+
+class BaseOpenAIBackend(Backend):
+    """
+    Standard implementation for backends that expose a generic OpenAI-compatible
+    API with /health and /v1/models endpoints (e.g. vLLM, TGI, SGLang).
+    """
+
+    def is_available(self) -> bool:
+        for path in ("/health", "/v1/models"):
+            try:
+                r = requests.get(f"{self._api_root()}{path}", timeout=3)
+                if r.status_code == 200:
+                    return True
+            except Exception:
+                pass
+        return False
+
+    def discover_models(self) -> list[ModelInfo]:
+        try:
+            r = requests.get(f"{self._v1_url()}/models", timeout=5)
+            r.raise_for_status()
+            data = r.json().get("data", [])
+            models = []
+            for item in data:
+                mid = item.get("id", "")
+                if not mid:
+                    continue
+                models.append(ModelInfo(
+                    id=mid,
+                    name=mid,
+                    backend_name=self.name or self.__class__.__name__,
+                    details=item,
+                ))
+            return models
+        except Exception:
+            return []
