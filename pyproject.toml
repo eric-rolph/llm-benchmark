@@ -4,12 +4,12 @@ build-backend = "hatchling.build"
 
 [project]
 name = "llm-benchmark"
-version = "0.2.0"
-description = "Automated benchmark suite for local LLMs — LM Studio, Ollama, llama.cpp"
+version = "0.3.0"
+description = "Automated benchmark suite for local LLMs — LM Studio, Ollama, llama.cpp, vLLM, and more"
 readme = "README.md"
 license = { text = "MIT" }
 requires-python = ">=3.11"
-keywords = ["llm", "benchmark", "ollama", "lm-studio", "llama-cpp", "local-ai"]
+keywords = ["llm", "benchmark", "ollama", "lm-studio", "llama-cpp", "vllm", "tgi", "sglang", "tensorrt", "local-ai"]
 classifiers = [
     "Development Status :: 4 - Beta",
     "Environment :: Console",
@@ -37,8 +37,8 @@ dev = [
 llm-bench = "benchmark.cli:main"
 
 [project.urls]
-Homepage = "https://github.com/ericrichardson/llm-benchmark"
-Issues   = "https://github.com/ericrichardson/llm-benchmark/issues"
+Homepage = "https://github.com/eric-rolph/llm-benchmark"
+Issues   = "https://github.com/eric-rolph/llm-benchmark/issues"
 
 [tool.hatch.build.targets.wheel]
 packages = ["benchmark"]
