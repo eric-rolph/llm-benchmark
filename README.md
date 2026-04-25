@@ -6,7 +6,7 @@
 ![License](https://img.shields.io/badge/license-MIT-lightgrey)
 
 Automated, objective benchmarking for **local LLMs** — no cloud, no API keys, no opinion.  
-Supports **LM Studio**, **Ollama**, and **llama.cpp** with automatic model discovery.  
+Supports **LM Studio, Ollama, llama.cpp, vLLM, SGLang, TensorRT-LLM, TGI, and KTransformers** with automatic model discovery.  
 Cross-platform: Windows · macOS · Linux.
 
 ---
@@ -23,8 +23,9 @@ Results are reproducible: temperature=0, tolerance-based numeric scoring, strict
 
 | Feature | Details |
 |---|---|
-| **Multi-backend** | LM Studio, Ollama, llama.cpp — configure once, run against all |
+| **Multi-backend** | LM Studio, Ollama, llama.cpp, vLLM, TGI, SGLang, TensorRT, KTransformers |
 | **Auto-discovery** | Probes enabled backends, enumerates all available models |
+| **HF Auto-Config** | Automatically fetches optimal `generation_config.json` parameters directly from Hugging Face for tested models |
 | **Thinking model support** | Qwen3, DeepSeek-R1 — reasoning tokens captured, clean text scored |
 | **78 tasks, 7 categories** | Math, reasoning, coding, knowledge, writing, summarization, instruction-following |
 | **14 scoring types** | numeric, exact, contains, fuzzy_match, regex, json_keys, line_count, code_exec, word_count, contains_n, not_contains, ends_with, pass_at_k, llm_judge |
@@ -187,11 +188,16 @@ Example console output:
 
 ## Backend Comparison
 
-| Backend | Discovery endpoint | Load model | Thinking tokens |
+| Backend | Discovery endpoint | Chat Endpoint | Thinking tokens |
 |---|---|---|---|
-| **LM Studio** | `GET /v1/models` | `POST /api/v0/models/load` | `delta.reasoning_content` |
-| **Ollama** | `GET /api/tags` | _(auto on first request)_ | `delta.thinking` |
-| **llama.cpp** | `GET /health` + `/v1/models` | _(single model, manual start)_ | `<think>` tag stripping |
+| **LM Studio** | `GET /v1/models` | `POST /v1/chat/completions` | `delta.reasoning_content` |
+| **Ollama** | `GET /api/tags` | `POST /v1/chat/completions` | `<think>` tags / `think: true` |
+| **llama.cpp** | `GET /v1/models` | `POST /v1/chat/completions` | `<think>` tag stripping |
+| **vLLM** | `GET /v1/models` | `POST /v1/chat/completions` | OpenAI compatible |
+| **TGI** | `GET /v1/models` | `POST /v1/chat/completions` | OpenAI compatible |
+| **SGLang** | `GET /v1/models` | `POST /v1/chat/completions` | OpenAI compatible |
+| **TensorRT-LLM** | `GET /v1/models` | `POST /v1/chat/completions` | OpenAI compatible |
+| **KTransformers** | `GET /v1/models` | `POST /v1/chat/completions` | OpenAI compatible |
 
 ---
 
@@ -355,132 +361,4 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for how to add tasks, backends, and scori
 MIT
 
 
-## Supported Backends
 
-| Backend    | Discovery Endpoint | Chat Endpoint | Thinking |
-|------------|-------------------|---------------|----------|
-| LM Studio  | `GET /v1/models`  | `POST /v1/chat/completions` | `delta.reasoning_content` |
-| Ollama     | `GET /api/tags`   | `POST /v1/chat/completions` | `<think>` tags / `think: true` |
-| llama.cpp  | `GET /v1/models`  | `POST /v1/chat/completions` | `<think>` tags in content |
-
-## config.yaml
-
-```yaml
-backends:
-  lm_studio:
-    enabled: true
-    base_url: "http://localhost:1234/v1"
-    auto_discover: true
-
-  ollama:
-    enabled: false             # set true when Ollama is running
-    base_url: "http://localhost:11434"
-    auto_discover: true
-
-  llamacpp:
-    enabled: false
-    base_url: "http://localhost:8080"
-    auto_discover: true
-
-models: []                     # empty = all discovered; or list specific IDs to filter
-
-benchmark:
-  temperature: 0.0
-  max_tokens: 4096
-  timeout: 180
-  runs_per_task: 1
-```
-
-## Results
-
-Results are saved to `results/results_TIMESTAMP.json` and `.csv` after each run.  
-The JSON format includes per-task scores, TPS, TTFT, reasoning token counts, and backend info.
-
-
-## Benchmark design
-
-| Category | Tasks | Scoring method | What it tests |
-|---|---|---|---|
-| `math` | 10 | Numeric comparison | Arithmetic, algebra, geometry, sequences |
-| `reasoning` | 8 | Numeric / contains | Logic, deduction, probability, patterns |
-| `coding` | 8 | **Code execution** | Python correctness via automated unit tests |
-| `instruction_following` | 8 | Exact / contains / JSON / line-count | Format compliance, precision |
-
-### Scoring types
-- **numeric** — first number extracted from response, compared with optional tolerance  
-- **exact** — stripped, case-insensitive equality  
-- **contains** — case-insensitive substring check  
-- **json_keys** — parses JSON from response, verifies required keys exist  
-- **line_count** — counts non-empty lines  
-- **code_exec** — extracts code block, runs it with `subprocess`, looks for `PASS` in stdout  
-
-### What gets measured per task
-- **Score** (0.0 / 0.5 / 1.0)  
-- **TTFT** — time to first token (ms)  
-- **TPS** — tokens per second (generation speed)  
-- **Total latency** (ms)
-
-## Output
-
-Results are saved to `results/results_TIMESTAMP.{json,csv}` after every run.  
-The CSV is ready for Excel / Google Sheets comparison pivot tables.
-
-## Config reference (`config.yaml`)
-
-```yaml
-lm_studio:
-  base_url: "http://localhost:1234/v1"
-  api_key:  "lm-studio"          # any non-empty string works
-
-models:
-  - "exact-model-id-from-lm-studio"
-
-benchmark:
-  temperature:   0.0    # keep 0.0 for reproducibility
-  max_tokens:    512
-  timeout:       120    # seconds
-  runs_per_task: 1      # increase to 3 for averaged TPS numbers
-```
-
-## Adding tasks
-
-Create or edit any `.yaml` file in `tasks/`. Each task needs:
-
-```yaml
-tasks:
-  - id: my_task_001
-    category: math            # math | reasoning | coding | instruction_following
-    description: "..."
-    prompt: "Your prompt here"
-    scoring:
-      type: numeric           # see scoring types above
-      answer: 42
-      tolerance: 0
-```
-
-For `code_exec` tasks, add a `test_code` block with assertions that print `PASS` on success:
-
-```yaml
-    scoring:
-      type: code_exec
-      test_code: |
-        assert my_function(5) == 120
-        print("PASS")
-```
-
-## Workflow for comparing Qwen3-6B vs Kimi K2
-
-```powershell
-# 1. Load Qwen3-6B in LM Studio, get its ID
-python run.py --list-models
-
-# 2. Edit config.yaml, add both model IDs
-# 3. Run with Qwen loaded first (auto-load will handle switching if LM Studio supports it)
-python run.py
-
-# 4. Results saved to results/ — open the CSV in Excel for comparison
-```
-
-> **Note on auto-loading**: LM Studio 0.3.x+ supports programmatic model loading via  
-> `POST /api/v0/models/load`. Older versions require manually switching models between runs.
-> Use `--no-autoload` if auto-load causes issues.
