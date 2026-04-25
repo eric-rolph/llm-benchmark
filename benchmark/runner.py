@@ -10,6 +10,8 @@ Thinking model support (Qwen3, Kimi K2, DeepSeek-R1, Nemotron, etc.):
 from __future__ import annotations
 
 import time
+import requests
+from rich.console import Console
 
 from benchmark.backends.base import Backend
 from benchmark.utils import strip_thinking, _avg
@@ -25,6 +27,38 @@ class ModelRunner:
         self.model_id = model_id
         self.bench = bench_config
         self._client = backend.get_openai_client()
+        self.hf_generation_config = self._fetch_hf_config(model_id)
+
+    def _fetch_hf_config(self, model_id: str) -> dict:
+        """Attempt to fetch optimal generation parameters directly from Hugging Face."""
+        if "/" not in model_id:
+            return {}
+        
+        config = {}
+        headers = {"User-Agent": "LLMBenchmarkSuite/1.0"}
+        urls_to_check = [
+            f"https://huggingface.co/{model_id}/raw/main/generation_config.json",
+            f"https://huggingface.co/{model_id}/raw/main/config.json"
+        ]
+        
+        for url in urls_to_check:
+            for attempt in range(2):
+                try:
+                    r = requests.get(url, headers=headers, timeout=5)
+                    if r.status_code == 200:
+                        data = r.json()
+                        for key in ["temperature", "top_p", "repetition_penalty", "max_new_tokens", "top_k"]:
+                            if key in data and key not in config:
+                                config[key] = data[key]
+                        break  # Success, move to next URL (or exit if we have everything, but we'll check both just in case)
+                except Exception:
+                    if attempt == 0:
+                        time.sleep(1) # wait before retry
+            
+        if config:
+            Console().print(f"  [dim]↳ Auto-loaded generation params from HF for {model_id} (e.g. temp={config.get('temperature', 'N/A')}, rep_penalty={config.get('repetition_penalty', 'N/A')})[/dim]")
+            
+        return config
 
     # ── model loading ────────────────────────────────────────────────────────
 
@@ -43,11 +77,26 @@ class ModelRunner:
             messages.append({"role": "assistant",  "content": str(example.get("assistant", ""))})
         messages.append({"role": "user", "content": task["prompt"]})
 
-        temperature = task.get("temperature", self.bench.get("temperature", 0.0))
-        max_tokens  = task.get("max_tokens",  self.bench.get("max_tokens", 4096))
+        hf_cfg = getattr(self, "hf_generation_config", {})
+        
+        # Override order: Task > HuggingFace > Global Benchmark Config
+        temperature = task.get("temperature", hf_cfg.get("temperature", self.bench.get("temperature", 0.0)))
+        max_tokens  = task.get("max_tokens",  hf_cfg.get("max_new_tokens", self.bench.get("max_tokens", 4096)))
         req_timeout = self.bench.get("timeout", 180)
 
+        # Pull other useful HF params if they exist
+        top_p       = task.get("top_p", hf_cfg.get("top_p"))
+        top_k       = task.get("top_k", hf_cfg.get("top_k"))
+        rep_penalty = task.get("repetition_penalty", hf_cfg.get("repetition_penalty"))
+
         extra_params = self.backend.get_extra_chat_params(task)
+        
+        # extra_body passes non-standard kwargs (like top_k, repetition_penalty) to the server
+        extra_body = extra_params.pop("extra_body", {})
+        if top_k is not None:
+            extra_body["top_k"] = top_k
+        if rep_penalty is not None:
+            extra_body["repetition_penalty"] = rep_penalty
 
         t_start = time.perf_counter()
         t_first_reasoning: float | None = None
@@ -58,16 +107,22 @@ class ModelRunner:
         reasoning_tokens  = 0
 
         try:
-            stream = self._client.chat.completions.create(
-                model=self.model_id,
-                messages=messages,
-                temperature=temperature,
-                max_tokens=max_tokens,
-                stream=True,
-                stream_options={"include_usage": True},
-                timeout=req_timeout,
+            kwargs = {
+                "model": self.model_id,
+                "messages": messages,
+                "temperature": temperature,
+                "max_tokens": max_tokens,
+                "stream": True,
+                "stream_options": {"include_usage": True},
+                "timeout": req_timeout,
                 **extra_params,
-            )
+            }
+            if top_p is not None:
+                kwargs["top_p"] = top_p
+            if extra_body:
+                kwargs["extra_body"] = extra_body
+
+            stream = self._client.chat.completions.create(**kwargs)
             for chunk in stream:
                 if chunk.choices:
                     delta = chunk.choices[0].delta

@@ -32,6 +32,48 @@ backends:
     base_url: "http://localhost:8080"
     auto_discover: true         # Queries /v1/models
 
+  # vLLM  ───────────────────────────────────────────────────────────────────
+  vllm:
+    enabled: false              # Set true when vLLM is running
+    name: "vLLM"
+    base_url: "http://localhost:8000"
+    auto_discover: true         # Queries /v1/models
+
+  # SGLang  ─────────────────────────────────────────────────────────────────
+  sglang:
+    enabled: false              # Set true when SGLang is running
+    name: "SGLang"
+    base_url: "http://localhost:30000"
+    auto_discover: true         # Queries /v1/models
+
+  # TensorRT-LLM  ───────────────────────────────────────────────────────────
+  tensorrt:
+    enabled: false              # Set true when TensorRT-LLM is running
+    name: "TensorRT"
+    base_url: "http://localhost:8000"
+    auto_discover: true         # Queries /v1/models
+
+  # TGI (Text Generation Inference)  ────────────────────────────────────────
+  tgi:
+    enabled: false              # Set true when TGI is running
+    name: "TGI"
+    base_url: "http://localhost:8080"
+    auto_discover: true         # Queries /v1/models
+
+  # KTransformers  ──────────────────────────────────────────────────────────
+  ktransformers:
+    enabled: false              # Set true when KTransformers is running
+    name: "KTransformers"
+    base_url: "http://localhost:8080"
+    auto_discover: true         # Queries /v1/models
+
+  # Generic OpenAI-compatible API (e.g. custom HF Transformers server)  ─────
+  generic_openai:
+    enabled: false
+    name: "Generic OpenAI"
+    base_url: "http://localhost:5000"
+    auto_discover: true         # Queries /v1/models
+
 # Optional manual model list.  Leave empty [] to rely on auto-discovery.
 # Format:  "model-id"  (bare string, matched against any enabled backend)
 # If populated, only these models are benchmarked (others from discovery skipped).
@@ -46,8 +88,8 @@ models: []
 #   - "qwen3:8b"                 # Ollama-style
 
 benchmark:
-  temperature: 0.0       # Deterministic — required for reproducible scoring
-  max_tokens: 4096       # Must be large enough for thinking models (Qwen3, Kimi, etc.)
+  temperature: 0.0       # Deterministic — required for reproducible scoring (Auto-overridden by HF generation_config.json if found)
+  max_tokens: 4096       # Must be large enough for thinking models (Auto-overridden by HF generation_config.json if found)
   timeout: 180           # Seconds before a single request is abandoned
   runs_per_task: 3       # Each task is run N times; score = mean ± std (statistical reliability)
   resume: false          # Set true (or use --resume) to skip already-completed (model, task) pairs

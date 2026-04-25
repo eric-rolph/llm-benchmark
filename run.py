@@ -275,6 +275,12 @@ def main():
         judge_model = judge_cfg.get("model") or all_pairs[0][0].id
         judge_client = all_pairs[0][1].get_openai_client()
         console.print(f"[dim]LLM judge enabled — model: {judge_model}[/dim]")
+        
+    # ── security warning ──────────────────────────────────────────────────────
+    if args.allow_code_exec:
+        console.print("\n[bold red]⚠️ WARNING: --allow-code-exec is enabled. Untrusted LLM code will be executed locally.[/bold red]")
+        if sys.platform == "win32":
+            console.print("[bold red]⚠️ SECURITY: You are on Windows. Memory limits (RLIMIT_AS) are NOT supported. A malicious model could consume all system RAM.[/bold red]\n")
     # ── tasks ─────────────────────────────────────────────────────────────
     tasks = load_tasks(args.category)
     if args.task:
