@@ -203,9 +203,11 @@ def print_report(all_results: dict):
             w_sum, w_tot = 0.0, 0.0
             for cat, cat_rs in by_cat.items():
                 valid = [
-                    _e3_score(r["score"], r.get("reasoning_tokens"), cat)
-                    for r in cat_rs
-                    if _e3_score(r["score"], r.get("reasoning_tokens"), cat) is not None
+                    s for s in (
+                        _e3_score(r["score"], r.get("reasoning_tokens"), cat)
+                        for r in cat_rs
+                    )
+                    if s is not None
                 ]
                 if valid:
                     w = CATEGORY_WEIGHTS.get(cat.lower().strip(), 1.0)
@@ -297,6 +299,11 @@ def append_jsonl(result: dict, path: Path) -> None:
         "tps":       result.get("tps"),
         "ttft_ms":   result.get("ttft_ms"),
         "total_ms":  result.get("total_ms"),
+        "completion_tokens": result.get("completion_tokens"),
+        "reasoning_tokens":  result.get("reasoning_tokens"),
+        "peak_vram_mb":      result.get("peak_vram_mb"),
+        "avg_gpu_util":      result.get("avg_gpu_util"),
+        "logprob_detail":    result.get("logprob_detail"),
         "response_preview": (result.get("response") or "")[:200],
     }
     with path.open("a", encoding="utf-8") as f:
