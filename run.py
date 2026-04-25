@@ -220,7 +220,8 @@ def main():
         epilog=__doc__,
     )
     parser.add_argument("--config",         default="config.yaml",  help="Path to config file")
-    parser.add_argument("--model",          help="Benchmark only this model ID (matched against any backend)")
+    parser.add_argument("--model",          nargs="+", metavar="MODEL",
+                        help="Benchmark only these model ID(s) (matched against any backend; use multiple for arena)")
     parser.add_argument("--backend",        help="Restrict to one backend type (lm_studio | ollama | llamacpp)")
     parser.add_argument("--category",       choices=categories,      help="Run only this task category")
     parser.add_argument("--task",           help="Run only a single task by ID")
@@ -268,9 +269,10 @@ def main():
 
     # Filter to --model if specified
     if args.model:
-        all_pairs = [(m, b) for m, b in all_pairs if args.model in m.id]
+        all_pairs = [(m, b) for m, b in all_pairs
+                     if any(pat in m.id for pat in args.model)]
         if not all_pairs:
-            console.print(f"[red]Model '{args.model}' not found in any enabled backend.[/red]")
+            console.print(f"[red]Model(s) {args.model} not found in any enabled backend.[/red]")
             console.print("[dim]Run --discover to see available models.[/dim]")
             sys.exit(1)
 

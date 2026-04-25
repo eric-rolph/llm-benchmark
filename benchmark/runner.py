@@ -147,7 +147,10 @@ class ModelRunner:
         Build a multi-part user message with text + image content for
         vision-language models (LLaVA, Qwen-VL, etc.).
 
-        Supports both remote URLs and local file paths (base64 encoded).
+        Supports both remote URLs and local file paths.  Remote URLs are
+        automatically fetched and base64-encoded because most local backends
+        (LM Studio, llama.cpp, Ollama) require inline base64 data URIs rather
+        than remote URLs.
         """
         import base64
         from pathlib import Path
@@ -156,13 +159,29 @@ class ModelRunner:
             {"type": "text", "text": task["prompt"]}
         ]
 
-        # Remote image URL
+        def _url_to_base64(url: str) -> str | None:
+            """Download a remote image and return a base64 data URI."""
+            try:
+                r = requests.get(url, timeout=15, headers={"User-Agent": "LLMBenchmarkSuite/1.0"})
+                r.raise_for_status()
+                ct = r.headers.get("Content-Type", "image/png")
+                # Clean up content-type (may include charset)
+                mime = ct.split(";")[0].strip()
+                if "/" not in mime:
+                    mime = "image/png"
+                data = base64.b64encode(r.content).decode("utf-8")
+                return f"data:{mime};base64,{data}"
+            except Exception:
+                return None
+
+        # Remote image URL → auto-fetch and convert to base64 for local backends
         if task.get("image_url"):
             urls = task["image_url"] if isinstance(task["image_url"], list) else [task["image_url"]]
             for url in urls:
+                data_uri = _url_to_base64(url)
                 content.append({
                     "type": "image_url",
-                    "image_url": {"url": url}
+                    "image_url": {"url": data_uri or url}
                 })
 
         # Local image file path (base64 encoded)
