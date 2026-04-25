@@ -11,10 +11,67 @@ from __future__ import annotations
 
 import time
 import requests
+import subprocess
+import threading
 from rich.console import Console
 
 from benchmark.backends.base import Backend
 from benchmark.utils import strip_thinking, _avg
+
+
+class TelemetryTracker:
+    """Background thread that polls nvidia-smi for peak VRAM and GPU utilization."""
+    def __init__(self):
+        self.running = False
+        self.thread = None
+        self.peak_vram_mb = 0
+        self.utils = []
+        self._smi_available = True
+
+    def _poll(self):
+        while self.running and self._smi_available:
+            try:
+                # --query-gpu=memory.used,utilization.gpu --format=csv,noheader,nounits
+                # Example output: "12543, 85\n12000, 70" (for multiple GPUs)
+                proc = subprocess.run(
+                    ["nvidia-smi", "--query-gpu=memory.used,utilization.gpu", "--format=csv,noheader,nounits"],
+                    capture_output=True, text=True, timeout=1.0
+                )
+                if proc.returncode == 0:
+                    lines = proc.stdout.strip().split("\n")
+                    total_vram = 0
+                    total_util = 0
+                    for line in lines:
+                        parts = line.split(",")
+                        if len(parts) >= 2:
+                            try:
+                                total_vram += int(parts[0].strip())
+                                total_util += int(parts[1].strip())
+                            except ValueError:
+                                pass
+                    self.peak_vram_mb = max(self.peak_vram_mb, total_vram)
+                    if lines:
+                        self.utils.append(total_util / len(lines)) # avg util across GPUs
+            except (FileNotFoundError, subprocess.TimeoutExpired):
+                self._smi_available = False
+            time.sleep(0.5)
+
+    def start(self):
+        self.running = True
+        self.thread = threading.Thread(target=self._poll, daemon=True)
+        self.thread.start()
+
+    def stop(self) -> dict:
+        self.running = False
+        if self.thread and self.thread.is_alive():
+            self.thread.join(timeout=1.0)
+        
+        result = {}
+        if self.peak_vram_mb > 0:
+            result["peak_vram_mb"] = self.peak_vram_mb
+        if self.utils:
+            result["avg_gpu_util"] = sum(self.utils) / len(self.utils)
+        return result
 
 
 class ModelRunner:
@@ -105,6 +162,9 @@ class ModelRunner:
         reasoning_text = ""
         completion_tokens = 0
         reasoning_tokens  = 0
+        
+        telemetry = TelemetryTracker()
+        telemetry.start()
 
         try:
             kwargs = {
@@ -159,6 +219,7 @@ class ModelRunner:
                             reasoning_tokens = int(rt)
 
         except Exception as e:
+            telemetry.stop()
             return {
                 "task_id": task["id"],
                 "response": "",
@@ -171,6 +232,7 @@ class ModelRunner:
                 "backend": self.backend.name,
             }
 
+        telemetry_data = telemetry.stop()
         t_end = time.perf_counter()
         total_ms = (t_end - t_start) * 1000
 
@@ -201,6 +263,7 @@ class ModelRunner:
             "completion_tokens": completion_tokens,
             "reasoning_tokens": reasoning_tokens,
             "backend": self.backend.name,
+            **telemetry_data,
         }
 
     def run_task(self, task: dict) -> dict:

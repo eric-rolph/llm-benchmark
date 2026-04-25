@@ -1,4 +1,4 @@
-﻿"""benchmark/reporter.py - rich console output and result persistence."""
+"""benchmark/reporter.py - rich console output and result persistence."""
 import csv
 import json
 import math
@@ -159,6 +159,8 @@ def print_report(all_results: dict):
         ("Avg TTFT (ms)",      lambda rs: _avg([r.get("ttft_ms") for r in rs])),
         ("Avg Total (ms)",     lambda rs: _avg([r.get("total_ms") for r in rs])),
         ("Avg Think Tokens",   lambda rs: _avg([r.get("reasoning_tokens") for r in rs])),
+        ("Peak VRAM (MB)",     lambda rs: max([r.get("peak_vram_mb", 0) for r in rs] + [0]) or None),
+        ("Avg GPU Util (%)",   lambda rs: _avg([r.get("avg_gpu_util") for r in rs if r.get("avg_gpu_util") is not None])),
     ]
     for label, fn in metrics:
         row = [label]
@@ -349,3 +351,89 @@ def save_results(all_results: dict, output_dir: str):
                     r.get("score_detail", ""),
                 ])
     console.print(f"CSV  → [cyan]{csv_path}[/cyan]")
+
+
+def save_html_report(all_results: dict, output_dir: str):
+    """Generate a visual side-by-side HTML comparison of model outputs."""
+    out = Path(output_dir)
+    out.mkdir(exist_ok=True)
+    ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+    html_path = out / f"report_{ts}.html"
+    
+    # Organize by task ID
+    tasks_dict = {}
+    models = list(all_results.keys())
+    for model, results in all_results.items():
+        for r in results:
+            task_id = r["task"]["id"]
+            if task_id not in tasks_dict:
+                tasks_dict[task_id] = {"task": r["task"], "results": {}}
+            tasks_dict[task_id]["results"][model] = r
+
+    # Simple HTML generator
+    html = [
+        "<!DOCTYPE html>",
+        "<html><head><meta charset='utf-8'><title>LLM Benchmark Report</title>",
+        "<style>",
+        "body { font-family: system-ui, -apple-system, sans-serif; background: #0d1117; color: #c9d1d9; margin: 0; padding: 20px; }",
+        "h1 { color: #58a6ff; text-align: center; border-bottom: 1px solid #30363d; padding-bottom: 10px; }",
+        ".task-card { background: #161b22; border: 1px solid #30363d; border-radius: 8px; margin-bottom: 30px; overflow: hidden; }",
+        ".task-header { background: #21262d; padding: 15px 20px; border-bottom: 1px solid #30363d; }",
+        ".task-title { margin: 0; color: #c9d1d9; font-size: 1.2em; }",
+        ".task-category { display: inline-block; background: #1f6feb; color: #ffffff; padding: 2px 8px; border-radius: 12px; font-size: 0.8em; margin-right: 10px; }",
+        ".prompt { background: #0d1117; padding: 10px; border-radius: 4px; border: 1px solid #30363d; white-space: pre-wrap; font-family: monospace; font-size: 0.9em; margin-top: 10px; color: #8b949e; }",
+        ".grid { display: flex; overflow-x: auto; padding: 20px; gap: 20px; }",
+        ".col { flex: 1; min-width: 350px; max-width: 600px; background: #0d1117; border: 1px solid #30363d; border-radius: 6px; padding: 15px; }",
+        ".model-name { margin-top: 0; color: #8a4baf; border-bottom: 1px solid #30363d; padding-bottom: 10px; font-size: 1.1em; }",
+        ".metrics { display: flex; gap: 10px; margin-bottom: 15px; font-size: 0.85em; }",
+        ".metric { background: #21262d; padding: 4px 8px; border-radius: 4px; color: #8b949e; }",
+        ".score-pass { color: #3fb950; font-weight: bold; }",
+        ".score-fail { color: #f85149; font-weight: bold; }",
+        ".reasoning { background: #161b22; border-left: 3px solid #8b949e; padding: 10px; margin-bottom: 15px; font-size: 0.9em; color: #8b949e; font-style: italic; white-space: pre-wrap; }",
+        ".response { white-space: pre-wrap; font-size: 0.95em; line-height: 1.5; }",
+        "</style></head><body>",
+        "<h1>LLM Benchmark Visual Report</h1>"
+    ]
+
+    for task_id, data in tasks_dict.items():
+        task = data["task"]
+        html.append(f"<div class='task-card'>")
+        html.append(f"<div class='task-header'>")
+        html.append(f"<h2 class='task-title'><span class='task-category'>{task.get('category', 'misc')}</span>{task_id}</h2>")
+        html.append(f"<div class='prompt'>{task.get('prompt', '').replace('<', '&lt;').replace('>', '&gt;')}</div>")
+        html.append("</div>")
+        html.append("<div class='grid'>")
+        
+        for model in models:
+            r = data["results"].get(model)
+            html.append("<div class='col'>")
+            html.append(f"<h3 class='model-name'>{model}</h3>")
+            if not r:
+                html.append("<div style='color: #8b949e;'>No result</div></div>")
+                continue
+            
+            score_cls = "score-pass" if r.get("score", 0) >= 1.0 else "score-fail"
+            score_text = f"Score: {r.get('score', 0):.1f}"
+            if r.get("score_detail"):
+                score_text += f" ({r['score_detail'][:50]})"
+                
+            html.append("<div class='metrics'>")
+            html.append(f"<span class='metric {score_cls}'>{score_text}</span>")
+            if r.get("tps"): html.append(f"<span class='metric'>{r['tps']:.1f} t/s</span>")
+            if r.get("ttft_ms"): html.append(f"<span class='metric'>{r['ttft_ms']:.0f}ms ttft</span>")
+            html.append("</div>")
+            
+            if r.get("reasoning_preview"):
+                reasoning = r["reasoning_preview"].replace("<", "&lt;").replace(">", "&gt;")
+                html.append(f"<div class='reasoning'><strong>Reasoning:</strong><br>{reasoning}</div>")
+                
+            response = str(r.get("response", "")).replace("<", "&lt;").replace(">", "&gt;")
+            html.append(f"<div class='response'>{response}</div>")
+            html.append("</div>")
+            
+        html.append("</div></div>")
+
+    html.append("</body></html>")
+    
+    html_path.write_text("\n".join(html), encoding="utf-8")
+    console.print(f"HTML → [cyan]{html_path}[/cyan]")

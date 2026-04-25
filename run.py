@@ -37,7 +37,7 @@ from rich import box
 from benchmark.backends import create_backend, discover_all_models
 from benchmark.backends.base import ModelInfo
 from benchmark.loader import load_tasks
-from benchmark.reporter import print_report, print_task_result, save_results, append_jsonl
+from benchmark.reporter import print_report, print_task_result, save_results, append_jsonl, save_html_report
 from benchmark.runner import ModelRunner
 from benchmark.scorer import score_response, score_pass_at_k
 
@@ -221,6 +221,7 @@ def main():
     parser.add_argument("--list-models",    action="store_true",     help="Alias for --discover")
     parser.add_argument("--dry-run",        action="store_true",     help="Validate task files and check backend connectivity, no inference")
     parser.add_argument("--allow-code-exec",action="store_true",     help="Enable code_exec scoring (runs model-generated Python locally — review tasks first)")
+    parser.add_argument("--html-report",    action="store_true",     help="Generate an interactive HTML visual report of the results")
     parser.add_argument("--ci-threshold",   type=float, default=None,metavar="RATIO",
                         help="Exit with code 1 if overall score ratio is below this (e.g. 0.8 = 80%%)")
     parser.add_argument("--limit",          type=int,   default=None, metavar="N",
@@ -367,6 +368,8 @@ def main():
 
     print_report(all_results)
     save_results(all_results, args.output)
+    if args.html_report:
+        save_html_report(all_results, args.output)
 
     # ── CI threshold check ────────────────────────────────────────────────
     if args.ci_threshold is not None:
