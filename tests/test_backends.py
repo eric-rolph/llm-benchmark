@@ -7,17 +7,17 @@ def test_backend_registry_instantiation():
     
     # Test a legacy backend
     ollama = create_backend("ollama", mock_config)
-    assert ollama.name == "ollama"
+    assert type(ollama).__name__ == "OllamaBackend"
     
     # Test new backends
     vllm = create_backend("vllm", mock_config)
-    assert vllm.name == "vllm"
+    assert type(vllm).__name__ == "VLLMBackend"
     
     tgi = create_backend("tgi", mock_config)
-    assert tgi.name == "tgi"
+    assert type(tgi).__name__ == "TGIBackend"
     
     sglang = create_backend("sglang", mock_config)
-    assert sglang.name == "sglang"
+    assert type(sglang).__name__ == "SGLangBackend"
 
 def test_backend_invalid_name():
     """Ensure invalid backend requests fail gracefully."""
