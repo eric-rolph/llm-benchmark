@@ -1,5 +1,5 @@
 """
-tests/test_scorer.py — unit tests for all 14 scoring types.
+tests/test_scorer.py — unit tests for all 15 scoring types.
 
 Run with:  pytest tests/test_scorer.py -v
 """
@@ -547,4 +547,30 @@ class TestPassAtK:
         )
         result = score_pass_at_k(task, runs)
         assert result["score"] == pytest.approx(0.9, abs=1e-9)
+
+
+# ── logprob_choice ────────────────────────────────────────────────────────────
+
+class TestLogprobChoice:
+    def test_exact_match(self):
+        s, d = score({"type": "logprob_choice", "value": "B"}, "B")
+        assert s == 1.0
+        assert "Logprob match" in d
+
+    def test_case_insensitive(self):
+        s, _ = score({"type": "logprob_choice", "value": "C"}, "c")
+        assert s == 1.0
+
+    def test_mismatch(self):
+        s, d = score({"type": "logprob_choice", "value": "A"}, "D")
+        assert s == 0.0
+        assert "expected 'A'" in d
+
+    def test_legacy_answer_key(self):
+        s, _ = score({"type": "logprob_choice", "answer": "B"}, "B")
+        assert s == 1.0
+
+    def test_whitespace_stripped(self):
+        s, _ = score({"type": "logprob_choice", "value": "A"}, "  A  ")
+        assert s == 1.0
 

@@ -93,3 +93,31 @@ def test_bare_list_yaml_tasks_have_no_version():
     # knowledge.yaml, writing.yaml, etc. are bare lists — their tasks should not have _version
     bare_tasks = [t for t in tasks if t.get("_version") is None]
     assert len(bare_tasks) > 0, "Expected some tasks without a _version (from bare-list YAML files)"
+
+
+# ── dataset task validation ───────────────────────────────────────────────────
+
+def test_validate_dataset_task_passes():
+    """Dataset tasks use 'dataset' + 'template' instead of 'prompt'."""
+    _validate_task(
+        {"id": "ds_test", "category": "knowledge", "dataset": {"name": "test"}, "template": "{{ q }}", "scoring": {"type": "exact"}},
+        "test.yaml", 0
+    )
+
+
+def test_validate_dataset_task_missing_template():
+    """Dataset tasks without a 'template' field should fail validation."""
+    with pytest.raises(ValueError, match="missing required fields"):
+        _validate_task(
+            {"id": "ds_test", "category": "knowledge", "dataset": {"name": "test"}, "scoring": {"type": "exact"}},
+            "test.yaml", 0
+        )
+
+
+def test_validate_dataset_task_does_not_require_prompt():
+    """Dataset tasks should NOT require 'prompt' — they use 'template' instead."""
+    # This should NOT raise even though 'prompt' is missing
+    _validate_task(
+        {"id": "ds_test", "category": "knowledge", "dataset": {"name": "test"}, "template": "{{ q }}", "scoring": {"type": "exact"}},
+        "test.yaml", 0
+    )

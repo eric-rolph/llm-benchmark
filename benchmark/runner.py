@@ -122,9 +122,10 @@ class ModelRunner:
     def ensure_model_loaded(self) -> None:
         self.backend.ensure_model_loaded(self.model_id)
 
-    # ── task execution ───────────────────────────────────────────────────────
+    # ── message construction ────────────────────────────────────────────────
 
-    def _run_once(self, task: dict) -> dict:
+    def _build_messages(self, task: dict) -> list[dict]:
+        """Build the standard chat message list from a task definition."""
         messages: list[dict] = []
         if task.get("system"):
             messages.append({"role": "system", "content": task["system"]})
@@ -132,7 +133,146 @@ class ModelRunner:
         for example in task.get("few_shot", []):
             messages.append({"role": "user",      "content": str(example.get("user", ""))})
             messages.append({"role": "assistant",  "content": str(example.get("assistant", ""))})
-        messages.append({"role": "user", "content": task["prompt"]})
+
+        # Vision tasks: build multi-part content with image(s)
+        if task.get("image_url") or task.get("image_path"):
+            messages.append(self._build_vision_message(task))
+        else:
+            messages.append({"role": "user", "content": task["prompt"]})
+        return messages
+
+    @staticmethod
+    def _build_vision_message(task: dict) -> dict:
+        """
+        Build a multi-part user message with text + image content for
+        vision-language models (LLaVA, Qwen-VL, etc.).
+
+        Supports both remote URLs and local file paths (base64 encoded).
+        """
+        import base64
+        from pathlib import Path
+
+        content: list[dict] = [
+            {"type": "text", "text": task["prompt"]}
+        ]
+
+        # Remote image URL
+        if task.get("image_url"):
+            urls = task["image_url"] if isinstance(task["image_url"], list) else [task["image_url"]]
+            for url in urls:
+                content.append({
+                    "type": "image_url",
+                    "image_url": {"url": url}
+                })
+
+        # Local image file path (base64 encoded)
+        if task.get("image_path"):
+            paths = task["image_path"] if isinstance(task["image_path"], list) else [task["image_path"]]
+            for img_path in paths:
+                p = Path(img_path)
+                if p.exists():
+                    data = base64.b64encode(p.read_bytes()).decode("utf-8")
+                    # Detect MIME type from extension
+                    ext = p.suffix.lower()
+                    mime_map = {".png": "image/png", ".jpg": "image/jpeg",
+                                ".jpeg": "image/jpeg", ".gif": "image/gif",
+                                ".webp": "image/webp"}
+                    mime = mime_map.get(ext, "image/png")
+                    content.append({
+                        "type": "image_url",
+                        "image_url": {"url": f"data:{mime};base64,{data}"}
+                    })
+
+        return {"role": "user", "content": content}
+
+    # ── task execution ───────────────────────────────────────────────────────
+
+    def _run_once_logprobs(self, task: dict) -> dict:
+        """
+        Non-streaming logprobs evaluation for multiple-choice tasks.
+
+        Instead of generating text, we request logprobs for a single token
+        and check which choice letter (A, B, C, D, etc.) has the highest
+        probability. This allows reliable evaluation of base (non-instruct)
+        models that don't produce clean formatted answers.
+        """
+        messages = self._build_messages(task)
+        hf_cfg = getattr(self, "hf_generation_config", {})
+        temperature = task.get("temperature", hf_cfg.get("temperature", self.bench.get("temperature", 0.0)))
+        req_timeout = self.bench.get("timeout", 180)
+
+        t_start = time.perf_counter()
+        telemetry = TelemetryTracker()
+        telemetry.start()
+
+        try:
+            resp = self._client.chat.completions.create(
+                model=self.model_id,
+                messages=messages,
+                temperature=temperature,
+                max_tokens=1,
+                logprobs=True,
+                top_logprobs=5,
+                stream=False,
+                timeout=req_timeout,
+            )
+        except Exception as e:
+            telemetry.stop()
+            return {
+                "task_id": task["id"],
+                "response": "",
+                "error": str(e),
+                "ttft_ms": None,
+                "total_ms": None,
+                "tps": None,
+                "completion_tokens": 0,
+                "reasoning_tokens": 0,
+                "backend": self.backend.name,
+            }
+
+        telemetry_data = telemetry.stop()
+        t_end = time.perf_counter()
+        total_ms = (t_end - t_start) * 1000
+
+        # Extract the choice with highest logprob
+        choice_text = resp.choices[0].message.content or ""
+        logprob_detail = ""
+
+        lp_content = getattr(resp.choices[0], "logprobs", None)
+        if lp_content and hasattr(lp_content, "content") and lp_content.content:
+            top_entries = lp_content.content[0].top_logprobs
+            # Build a readable summary of probabilities
+            probs = {e.token.strip(): e.logprob for e in top_entries}
+            sorted_probs = sorted(probs.items(), key=lambda x: x[1], reverse=True)
+            logprob_detail = " | ".join(f"{tok}={lp:.2f}" for tok, lp in sorted_probs)
+            # The response is the highest-probability token
+            if sorted_probs:
+                choice_text = sorted_probs[0][0]
+
+        completion_tokens = getattr(resp.usage, "completion_tokens", 0) if resp.usage else 0
+
+        return {
+            "task_id": task["id"],
+            "response": choice_text,
+            "reasoning_preview": None,
+            "error": None,
+            "ttft_ms": round(total_ms, 1),  # Non-streaming: TTFT ≈ total
+            "total_ms": round(total_ms, 1),
+            "tps": None,  # Not meaningful for 1-token generation
+            "completion_tokens": completion_tokens,
+            "reasoning_tokens": 0,
+            "backend": self.backend.name,
+            "logprob_detail": logprob_detail,
+            **telemetry_data,
+        }
+
+    def _run_once(self, task: dict) -> dict:
+        # Route logprob_choice tasks to the non-streaming logprobs evaluator
+        scoring_type = task.get("scoring", {}).get("type", "")
+        if scoring_type == "logprob_choice":
+            return self._run_once_logprobs(task)
+
+        messages = self._build_messages(task)
 
         hf_cfg = getattr(self, "hf_generation_config", {})
         

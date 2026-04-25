@@ -1,0 +1,60 @@
+# tasks/vision.yaml — Vision-Language model evaluation tasks
+# These tasks test multi-modal models (LLaVA, Qwen-VL, Gemma PaliGemma, etc.)
+# Requires a vision-capable model loaded in your backend.
+#
+# Supports:
+#   image_url:  remote image URL (https://...)
+#   image_path: local file path (relative or absolute)
+#   Both can be a single string or a list for multi-image tasks.
+
+metadata:
+  version: 1
+  description: "Vision-language benchmark tasks"
+
+tasks:
+  - id: vision_clock_reading
+    category: reasoning
+    difficulty: medium
+    prompt: "What time is shown on this clock? Answer with just the time in HH:MM format."
+    image_url: "https://upload.wikimedia.org/wikipedia/commons/thumb/a/a8/Clock_at_3_o%27clock.svg/300px-Clock_at_3_o%27clock.svg.png"
+    scoring:
+      type: contains
+      value: "3:00"
+
+  - id: vision_count_objects
+    category: reasoning
+    difficulty: easy
+    prompt: "How many red circles are in this image? Answer with just the number."
+    image_url: "https://upload.wikimedia.org/wikipedia/commons/thumb/0/02/Olympic_rings_without_rims.svg/400px-Olympic_rings_without_rims.svg.png"
+    scoring:
+      type: numeric
+      value: 0
+      tolerance: 0
+
+  - id: vision_ocr_text
+    category: knowledge
+    difficulty: medium
+    prompt: "Read the text visible in this image. What does it say? Be exact."
+    image_url: "https://upload.wikimedia.org/wikipedia/commons/thumb/2/2f/Google_2015_logo.svg/368px-Google_2015_logo.svg.png"
+    scoring:
+      type: contains
+      value: "Google"
+
+  - id: vision_describe_scene
+    category: writing
+    difficulty: medium
+    prompt: "Describe this image in 2-3 sentences. Focus on the main subject and setting."
+    image_url: "https://upload.wikimedia.org/wikipedia/commons/thumb/4/47/PNG_transparency_demonstration_1.png/300px-PNG_transparency_demonstration_1.png"
+    scoring:
+      type: word_count
+      min: 10
+      max: 80
+
+  - id: vision_chart_reading
+    category: reasoning
+    difficulty: hard
+    prompt: "This image shows a simple bar chart. Which category has the tallest bar? Answer with just the category name."
+    image_url: "https://upload.wikimedia.org/wikipedia/commons/thumb/1/1b/Btk-pathway_inhibitors_clinical_trials.svg/400px-Btk-pathway_inhibitors_clinical_trials.svg.png"
+    scoring:
+      type: llm_judge
+      criteria: "Does the response identify the tallest bar in the chart correctly?"

@@ -5,6 +5,12 @@ Supported backends (configure in config.yaml):
   lm_studio   — LM Studio local server  (http://localhost:1234)
   ollama      — Ollama                  (http://localhost:11434)
   llamacpp    — llama.cpp server        (http://localhost:8080)
+  vllm        — vLLM                    (http://localhost:8000)
+  sglang      — SGLang                  (http://localhost:30000)
+  tgi         — Text Generation Inference
+  tensorrt    — TensorRT-LLM
+  ktransformers — KTransformers
+  generic_openai — Any OpenAI-compatible server
 
 Quick start:
   python run.py                          # auto-discover models, run all tasks
@@ -17,6 +23,8 @@ Quick start:
   python run.py --no-autoload            # skip LM Studio model-load attempt
   python run.py --allow-code-exec        # enable code_exec scoring (runs model-generated Python)
   python run.py --ci-threshold 0.8       # exit 1 if overall score < 80%  (CI integration)
+  python run.py --html-report            # generate interactive HTML visual report
+  python run.py --arena                  # ELO arena: pairwise model competition with LLM judge
   python run.py --limit 5                # smoke-test: first 5 tasks per category
   python run.py --resume                 # skip tasks already in the most recent results JSONL
 """
@@ -40,6 +48,7 @@ from benchmark.loader import load_tasks
 from benchmark.reporter import print_report, print_task_result, save_results, append_jsonl, save_html_report
 from benchmark.runner import ModelRunner
 from benchmark.scorer import score_response, score_pass_at_k
+from benchmark.arena import run_arena, print_arena_leaderboard
 
 console = Console()
 
@@ -222,6 +231,7 @@ def main():
     parser.add_argument("--dry-run",        action="store_true",     help="Validate task files and check backend connectivity, no inference")
     parser.add_argument("--allow-code-exec",action="store_true",     help="Enable code_exec scoring (runs model-generated Python locally — review tasks first)")
     parser.add_argument("--html-report",    action="store_true",     help="Generate an interactive HTML visual report of the results")
+    parser.add_argument("--arena",          action="store_true",     help="Arena mode: pairwise ELO competition between all discovered models")
     parser.add_argument("--ci-threshold",   type=float, default=None,metavar="RATIO",
                         help="Exit with code 1 if overall score ratio is below this (e.g. 0.8 = 80%%)")
     parser.add_argument("--limit",          type=int,   default=None, metavar="N",
@@ -311,6 +321,23 @@ def main():
         f"[dim]{len(tasks)} tasks · categories: {cats} · "
         f"{len(all_pairs)} model(s)[/dim]\n"
     )
+
+    # ── Arena mode ─────────────────────────────────────────────────────────
+    if args.arena:
+        if not judge_client:
+            # Auto-enable judge for arena mode using first discovered model
+            judge_model = all_pairs[0][0].id
+            judge_client = all_pairs[0][1].get_openai_client()
+            console.print(f"[dim]Arena mode: auto-enabled judge — model: {judge_model}[/dim]")
+        players = run_arena(
+            model_pairs=all_pairs,
+            tasks=tasks,
+            bench_config=bench_config,
+            judge_client=judge_client,
+            judge_model=judge_model,
+        )
+        print_arena_leaderboard(players)
+        return
 
     all_results: dict = {}
 

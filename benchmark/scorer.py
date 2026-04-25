@@ -14,6 +14,7 @@ Scoring types:
   json_keys        — parse JSON object, verify required keys exist
   line_count       — count non-empty lines, compare to expected
   code_exec        — extract code block, run it, look for PASS in stdout
+  logprob_choice   — compare highest-probability token against expected answer (for base models)
   pass_at_k        — run inner_type k times; score via unbiased Chen et al. 2021 estimator
   llm_judge        — CoT-then-score via a secondary LLM (enable with judge.enabled: true)
   rubric_judge     — decomposed multi-criterion rubric via LLM (XpertBench ShotJudge pattern)
@@ -204,20 +205,21 @@ def score_response(task: dict, run_result: dict, allow_code_exec: bool = False,
     )
 
     dispatch = {
-        "numeric":      _score_numeric,
-        "exact":        _score_exact,
-        "contains":     _score_contains,
-        "contains_n":   _score_contains_n,
-        "not_contains": _score_not_contains,
-        "ends_with":    _score_ends_with,
-        "fuzzy_match":  _score_fuzzy_match,
-        "word_count":   _score_word_count,
-        "regex":        _score_regex,
-        "json_keys":    _score_json_keys,
-        "line_count":   _score_line_count,
-        "code_exec":    _code_exec_fn,
-        "llm_judge":    lambda r, s: _score_llm_judge(r, s, task, judge_client, judge_model),
-        "rubric_judge": lambda r, s: _score_rubric_judge(r, s, task, judge_client, judge_model),
+        "numeric":          _score_numeric,
+        "exact":            _score_exact,
+        "contains":         _score_contains,
+        "contains_n":       _score_contains_n,
+        "not_contains":     _score_not_contains,
+        "ends_with":        _score_ends_with,
+        "fuzzy_match":      _score_fuzzy_match,
+        "word_count":       _score_word_count,
+        "regex":            _score_regex,
+        "json_keys":        _score_json_keys,
+        "line_count":       _score_line_count,
+        "code_exec":        _code_exec_fn,
+        "logprob_choice":   _score_logprob_choice,
+        "llm_judge":        lambda r, s: _score_llm_judge(r, s, task, judge_client, judge_model),
+        "rubric_judge":     lambda r, s: _score_rubric_judge(r, s, task, judge_client, judge_model),
     }
 
     fn = dispatch.get(method, lambda r, s: (0.0, f"Unknown scoring type: {method}"))
@@ -259,6 +261,22 @@ def _extract_code(response: str) -> str:
 
 
 # ── scorers ──────────────────────────────────────────────────────────────────
+
+def _score_logprob_choice(response: str, scoring: dict):
+    """
+    Score a logprob-based multiple choice response.
+
+    The runner already selected the highest-probability token and placed it
+    in the 'response' field.  We just do a case-insensitive exact match
+    against the expected answer (e.g. "A", "B", "C", "D").
+    """
+    raw = scoring.get("answer", scoring.get("value", ""))
+    expected = str(raw).strip().upper()
+    got = response.strip().upper()
+    if got == expected:
+        return 1.0, f"Logprob match: {got}"
+    return 0.0, f"Logprob: got '{got}', expected '{expected}'"
+
 
 def _score_numeric(response: str, scoring: dict):
     # Accept both 'answer' (legacy) and 'value' keys
