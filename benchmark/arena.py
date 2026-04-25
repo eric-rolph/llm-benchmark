@@ -16,7 +16,6 @@ How it works:
 """
 from __future__ import annotations
 
-import math
 import random
 from dataclasses import dataclass, field
 from rich.console import Console
@@ -155,6 +154,7 @@ def run_arena(
     bench_config: dict,
     judge_client,
     judge_model: str | None,
+    no_autoload: bool = False,
 ) -> dict[str, ArenaPlayer]:
     """
     Run a round-robin arena: every pair of models competes on every task.
@@ -164,13 +164,15 @@ def run_arena(
         console.print("[red]Arena mode requires at least 2 models.[/red]")
         return {}
 
-    # Create players
+    # Create players and runners
     players: dict[str, ArenaPlayer] = {}
     runners: dict[str, ModelRunner] = {}
+    auto_load: dict[str, bool] = {}
     for model_info, backend in model_pairs:
         mid = model_info.id
         players[mid] = ArenaPlayer(model_id=mid, backend_name=backend.name)
         runners[mid] = ModelRunner(backend, mid, bench_config)
+        auto_load[mid] = backend.config.get("auto_load", False) and not no_autoload
 
     model_ids = list(players.keys())
     total_matchups = len(tasks) * len(model_ids) * (len(model_ids) - 1) // 2
@@ -182,6 +184,9 @@ def run_arena(
         # Pre-generate all responses for this task
         responses: dict[str, str] = {}
         for mid in model_ids:
+            # Ensure the model is loaded (critical for LM Studio auto-load)
+            if auto_load[mid]:
+                runners[mid].ensure_model_loaded()
             raw = runners[mid].run_task(task)
             responses[mid] = strip_thinking(raw.get("response", ""))
 

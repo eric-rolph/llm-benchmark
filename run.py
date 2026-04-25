@@ -17,6 +17,7 @@ Quick start:
   python run.py --discover               # probe backends and list found models
   python run.py --dry-run                # validate task files + check backends, no inference
   python run.py --model "qwen3:8b"       # single model (all categories)
+  python run.py --model "modelA" "modelB"# multiple models (for arena mode)
   python run.py --backend ollama         # only Ollama models
   python run.py --category math          # single category
   python run.py --task capital_france    # single task by ID
@@ -337,6 +338,7 @@ def main():
             bench_config=bench_config,
             judge_client=judge_client,
             judge_model=judge_model,
+            no_autoload=args.no_autoload,
         )
         print_arena_leaderboard(players)
         return

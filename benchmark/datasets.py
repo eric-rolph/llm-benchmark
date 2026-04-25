@@ -150,8 +150,6 @@ def expand_dataset_task(task_def: dict) -> list[dict]:
             raw_answer = row_dict[answer_field]
             if answer_map and raw_answer in answer_map:
                 task_scoring["value"] = str(answer_map[raw_answer])
-            elif answer_map and isinstance(raw_answer, int) and raw_answer in answer_map:
-                task_scoring["value"] = str(answer_map[raw_answer])
             else:
                 task_scoring["value"] = str(raw_answer)
 

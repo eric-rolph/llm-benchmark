@@ -114,7 +114,6 @@
     type: numeric
     value: 2
     tolerance: 0
-    tolerance: 0
 
 - id: largest_ocean
   category: knowledge
