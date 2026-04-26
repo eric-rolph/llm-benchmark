@@ -5,17 +5,31 @@
 ![Backends](https://img.shields.io/badge/backends-9-orange)
 ![License](https://img.shields.io/badge/license-MIT-lightgrey)
 
-Automated, objective benchmarking for **local LLMs** — no cloud, no API keys, no opinion.  
-Supports **LM Studio, Ollama, llama.cpp, vLLM, SGLang, TensorRT-LLM, TGI, and KTransformers** with automatic model discovery.  
-Cross-platform: Windows · macOS · Linux.
+Local-first, reproducible benchmarking for LLMs you run yourself.
+
+`llm-benchmark` runs deterministic task suites against local and OpenAI-compatible inference servers, then writes comparison-friendly JSON, JSONL, CSV, and optional HTML reports. It supports **LM Studio, Ollama, llama.cpp, vLLM, SGLang, TensorRT-LLM, TGI, KTransformers, and generic OpenAI-compatible backends** with automatic model discovery.
+
+Current state: **87 tasks**, **7 scored categories**, **16 scoring modes**, crash-safe resume, pass@k, LLM/rubric judging, result diffs, and pairwise arena mode with persisted ELO artifacts.
 
 ---
 
 ## Why This Exists
 
 Most LLM leaderboards measure proprietary models on curated benchmarks you can't reproduce.
-This tool runs **deterministic, open tasks** against models you already have running on your own machine.
-Results are reproducible: temperature=0, tolerance-based numeric scoring, strict schema validation.
+This tool runs **deterministic, open tasks** against models you already have running on your own machine or on an OpenAI-compatible server you control.
+Results are built for auditability: temperature=0 by default, tolerance-based numeric scoring, strict schema validation, task hashes, versioned JSONL records, and run-to-run comparison.
+
+---
+
+## At a Glance
+
+| Area | Current state |
+|---|---|
+| **Tasks** | 87 tasks across math, knowledge, coding, reasoning, writing, summarization, and instruction-following |
+| **Backends** | LM Studio, Ollama, llama.cpp, vLLM, SGLang, TensorRT-LLM, TGI, KTransformers, generic OpenAI-compatible |
+| **Scoring** | 16 scoring modes, including exact/numeric/regex/JSON checks, code execution, pass@k, logprob choice, LLM judge, and rubric judge |
+| **Reproducibility** | Task version/hash tracking, opt-in Hugging Face auto-config, dataset dry-run safety, resumable JSONL logs |
+| **Outputs** | Rich console tables, JSON, CSV, crash-safe JSONL, optional HTML reports, result comparisons, arena ELO JSON |
 
 ---
 
@@ -33,6 +47,8 @@ Results are reproducible: temperature=0, tolerance-based numeric scoring, strict
 | **pass@k coding** | `scoring.type: pass_at_k` can run n samples and estimate pass@k with the unbiased Chen et al. (2021) estimator |
 | **LLM-as-judge** | CoT-then-score protocol — enable with `judge.enabled: true` in config |
 | **Run resumption** | `--resume` continues from an interrupted run, skipping task-version/content-matched results |
+| **Result comparison** | `--compare` diffs saved JSON/JSONL runs, including model-level and task-level score movement |
+| **Arena artifacts** | `--arena` runs pairwise ELO judging and persists leaderboard + match history JSON |
 | **Task versioning** | `metadata.version` in task YAML propagates to JSONL for audit trails |
 | **Composite score** | Weighted cross-category score in summary table (coding/math/reasoning weighted higher) |
 | **Crash-safe results** | Incremental JSONL written after every task — restart safely |
