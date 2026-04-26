@@ -16,8 +16,12 @@ How it works:
 """
 from __future__ import annotations
 
+import json
 import random
 from dataclasses import dataclass, field
+from datetime import datetime
+from pathlib import Path
+
 from rich.table import Table
 from rich import box
 
@@ -261,3 +265,49 @@ def print_arena_leaderboard(players: dict[str, ArenaPlayer]):
         )
 
     console.print(t)
+
+
+def arena_results_payload(players: dict[str, ArenaPlayer]) -> dict:
+    """Convert arena players into a JSON-serialisable payload."""
+    sorted_players = sorted(players.values(), key=lambda p: (-p.elo, p.model_id))
+    return {
+        "generated_at": datetime.now().isoformat(timespec="seconds"),
+        "initial_elo": _INITIAL_ELO,
+        "k_factor": _K_FACTOR,
+        "leaderboard": [
+            {
+                "rank": rank,
+                "model_id": player.model_id,
+                "backend": player.backend_name,
+                "elo": round(player.elo, 2),
+                "wins": player.wins,
+                "losses": player.losses,
+                "ties": player.ties,
+                "matches": player.wins + player.losses + player.ties,
+                "win_rate": (
+                    player.wins / (player.wins + player.losses + player.ties)
+                    if (player.wins + player.losses + player.ties)
+                    else None
+                ),
+            }
+            for rank, player in enumerate(sorted_players, 1)
+        ],
+        "history": {
+            model_id: player.history
+            for model_id, player in sorted(players.items())
+        },
+    }
+
+
+def save_arena_results(players: dict[str, ArenaPlayer], output_dir: str | Path) -> Path | None:
+    """Persist an arena leaderboard and match history as JSON."""
+    if not players:
+        return None
+
+    out = Path(output_dir)
+    out.mkdir(exist_ok=True)
+    ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+    path = out / f"arena_{ts}.json"
+    path.write_text(json.dumps(arena_results_payload(players), indent=2), encoding="utf-8")
+    console.print(f"\nArena JSON → [cyan]{path}[/cyan]")
+    return path

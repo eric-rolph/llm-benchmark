@@ -26,6 +26,7 @@ Quick start:
   python run.py --ci-threshold 0.8       # exit 1 if overall score < 80%  (CI integration)
   python run.py --html-report            # generate interactive HTML visual report
   python run.py --arena                  # ELO arena: pairwise model competition with LLM judge
+  python run.py --compare old new        # compare two saved JSON/JSONL result files
   python run.py --limit 5                # smoke-test: first 5 tasks per category
   python run.py --resume                 # skip tasks already in the most recent results JSONL
 """
@@ -49,7 +50,8 @@ from benchmark.loader import load_tasks
 from benchmark.reporter import print_report, print_task_result, save_results, append_jsonl, save_html_report
 from benchmark.runner import ModelRunner
 from benchmark.scorer import score_response, score_pass_at_k
-from benchmark.arena import run_arena, print_arena_leaderboard
+from benchmark.arena import run_arena, print_arena_leaderboard, save_arena_results
+from benchmark.compare import compare_result_files
 from benchmark.utils import task_fingerprint
 
 console = make_console()
@@ -287,6 +289,10 @@ def main():
     parser.add_argument("--allow-code-exec",action="store_true",     help="Enable code_exec scoring (runs model-generated Python locally — review tasks first)")
     parser.add_argument("--html-report",    action="store_true",     help="Generate an interactive HTML visual report of the results")
     parser.add_argument("--arena",          action="store_true",     help="Arena mode: pairwise ELO competition between all discovered models")
+    parser.add_argument("--compare",        nargs=2, metavar=("BASELINE", "CANDIDATE"),
+                        help="Compare two saved JSON/JSONL result files and exit")
+    parser.add_argument("--compare-top",    type=int, default=10, metavar="N",
+                        help="Number of largest task deltas to show with --compare")
     parser.add_argument("--ci-threshold",   type=float, default=None,metavar="RATIO",
                         help="Exit with code 1 if overall score ratio is below this (e.g. 0.8 = 80%%)")
     parser.add_argument("--limit",          type=int,   default=None, metavar="N",
@@ -294,6 +300,10 @@ def main():
     parser.add_argument("--resume",         action="store_true",
                         help="Skip (model, task) pairs already in the most recent results JSONL (continue interrupted run)")
     args = parser.parse_args()
+
+    if args.compare:
+        compare_result_files(args.compare[0], args.compare[1], top_n=args.compare_top)
+        return
 
     config = _load_config(args.config)
     bench_config = config.get("benchmark", {})
@@ -394,6 +404,7 @@ def main():
             no_autoload=args.no_autoload,
         )
         print_arena_leaderboard(players)
+        save_arena_results(players, args.output)
         return
 
     all_results: dict = {}

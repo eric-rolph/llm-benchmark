@@ -121,9 +121,13 @@ python run.py --category math           # single category
 python run.py --task capital_france     # single task by ID
 python run.py --limit 2                 # first 2 tasks per category (quick smoke test)
 python run.py --resume                  # skip tasks already in the most recent results JSONL
+python run.py --compare old.jsonl new.jsonl # compare two saved result files
+python run.py --compare old.json new.json --compare-top 20 # show more task deltas
 python run.py --no-autoload             # skip LM Studio model-load attempt
 python run.py --allow-code-exec         # enable code_exec scoring (runs generated Python locally)
 python run.py --ci-threshold 0.80       # exit 1 if overall score < 80%  (CI integration)
+python run.py --html-report             # write an interactive HTML report
+python run.py --arena                   # pairwise ELO arena using an LLM judge
 python run.py --output my_results       # custom output directory
 ```
 
@@ -173,9 +177,10 @@ Results are saved to the `results/` directory after every run:
 
 ```
 results/
-  summary_20250118_143022.json   # full structured results
-  summary_20250118_143022.csv    # spreadsheet-friendly export
+  results_20250118_143022.json   # full structured results
+  results_20250118_143022.csv    # spreadsheet-friendly export
   results_20250118_143022.jsonl  # incremental crash-safe log (one line per task)
+  arena_20250118_143022.json     # arena leaderboard + match history when --arena is used
 ```
 
 Example console output:
@@ -185,6 +190,18 @@ Example console output:
  ✓  coding           fizzbuzz_function            score=1.0  1651 t/s
  ✗  reasoning        syllogism_barbara            score=0.0  Missing 'all mortals'
 ```
+
+---
+
+### Compare result files
+
+Compare two completed or in-progress runs without starting a backend:
+
+```bash
+python run.py --compare results/results_20250118_143022.jsonl results/results_20250119_091500.jsonl
+```
+
+`--compare` accepts the structured JSON files and the incremental JSONL files. It reports per-model score movement, composite-score movement, unmatched task counts, and the largest task-level deltas. Use `--compare-top N` to change how many task changes are shown.
 
 ---
 
