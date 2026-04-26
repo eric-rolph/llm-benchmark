@@ -377,17 +377,28 @@ def _score_regex(response: str, scoring: dict):
 
 def _score_json_keys(response: str, scoring: dict):
     required = scoring.get("keys", [])
-    m = re.search(r"\{.*\}", response, re.DOTALL)
-    if not m:
+    decoder = json.JSONDecoder()
+    best_missing = None
+
+    for idx, char in enumerate(response):
+        if char != "{":
+            continue
+        try:
+            data, _ = decoder.raw_decode(response[idx:])
+        except json.JSONDecodeError:
+            continue
+        if not isinstance(data, dict):
+            continue
+
+        missing = [k for k in required if k not in data]
+        if not missing:
+            return 1.0, f"All required keys present: {required}"
+        if best_missing is None or len(missing) < len(best_missing):
+            best_missing = missing
+
+    if best_missing is None:
         return 0.0, "No JSON object found in response"
-    try:
-        data = json.loads(m.group())
-    except json.JSONDecodeError as e:
-        return 0.0, f"Invalid JSON: {e}"
-    missing = [k for k in required if k not in data]
-    if not missing:
-        return 1.0, f"All required keys present: {required}"
-    return 0.0, f"Missing keys: {missing}"
+    return 0.0, f"Missing keys: {best_missing}"
 
 
 def _score_line_count(response: str, scoring: dict):
@@ -459,7 +470,16 @@ def _score_code_exec(response: str, scoring: dict):
                 except (ProcessLookupError, OSError):
                     pass
             else:
-                proc.kill()
+                subprocess.run(
+                    ["taskkill", "/PID", str(proc.pid), "/T", "/F"],
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                    check=False,
+                )
+                try:
+                    proc.kill()
+                except OSError:
+                    pass
             proc.communicate()  # reap zombie
             return 0.0, f"Execution timed out ({_CODE_EXEC_TIMEOUT_S} s)"
 

@@ -10,7 +10,7 @@ from rich import box
 from rich.table import Table
 
 from benchmark.console import make_console
-from benchmark.utils import _avg
+from benchmark.utils import _avg, task_fingerprint
 
 console = make_console()
 
@@ -293,6 +293,7 @@ def append_jsonl(result: dict, path: Path) -> None:
         "backend":   result.get("backend", "?"),
         "task_id":   result["task"]["id"],
         "task_version": result["task"].get("_version"),
+        "task_hash": task_fingerprint(result["task"]),
         "category":  result["task"]["category"],
         "score":     result["score"],
         "score_detail": result.get("score_detail", ""),
@@ -304,6 +305,7 @@ def append_jsonl(result: dict, path: Path) -> None:
         "peak_vram_mb":      result.get("peak_vram_mb"),
         "avg_gpu_util":      result.get("avg_gpu_util"),
         "logprob_detail":    result.get("logprob_detail"),
+        "hf_generation_config": result.get("hf_generation_config"),
         "response_preview": (result.get("response") or "")[:200],
     }
     with path.open("a", encoding="utf-8") as f:
@@ -323,6 +325,7 @@ def save_results(all_results: dict, output_dir: str):
                 "model_id": model,
                 "task_id": r["task"]["id"],
                 "task_version": r["task"].get("_version"),
+                "task_hash": task_fingerprint(r["task"]),
                 "category": r["task"]["category"],
                 "score": r["score"],
                 "score_detail": r.get("score_detail", ""),
@@ -331,6 +334,7 @@ def save_results(all_results: dict, output_dir: str):
                 "total_ms": r.get("total_ms"),
                 "completion_tokens": r.get("completion_tokens"),
                 "reasoning_tokens": r.get("reasoning_tokens"),
+                "hf_generation_config": r.get("hf_generation_config"),
                 "response_preview": (r.get("response") or "")[:300],
             }
             for r in results

@@ -25,14 +25,14 @@ Results are reproducible: temperature=0, tolerance-based numeric scoring, strict
 |---|---|
 | **Multi-backend** | LM Studio, Ollama, llama.cpp, vLLM, TGI, SGLang, TensorRT, KTransformers |
 | **Auto-discovery** | Probes enabled backends, enumerates all available models |
-| **HF Auto-Config** | Automatically fetches optimal `generation_config.json` parameters directly from Hugging Face for tested models |
+| **HF Auto-Config** | Opt-in fetch of Hugging Face `generation_config.json` parameters for tested models |
 | **Thinking model support** | Qwen3, DeepSeek-R1 — reasoning tokens captured, clean text scored |
 | **87 tasks, 7 categories** | Math, reasoning, coding, knowledge, writing, summarization, instruction-following, including vision-language tasks folded into reasoning/writing |
-| **14 scoring types** | numeric, exact, contains, fuzzy_match, regex, json_keys, line_count, code_exec, word_count, contains_n, not_contains, ends_with, pass_at_k, llm_judge |
+| **16 scoring types** | numeric, exact, contains, fuzzy_match, regex, json_keys, line_count, code_exec, word_count, contains_n, not_contains, ends_with, logprob_choice, pass_at_k, llm_judge, rubric_judge |
 | **Few-shot examples** | Add `few_shot:` to any task YAML to inject conversation history before the prompt |
-| **pass@k coding** | `scoring.type: pass_at_k` runs a task k times; uses the unbiased Chen et al. (2021) estimator |
+| **pass@k coding** | `scoring.type: pass_at_k` can run n samples and estimate pass@k with the unbiased Chen et al. (2021) estimator |
 | **LLM-as-judge** | CoT-then-score protocol — enable with `judge.enabled: true` in config |
-| **Run resumption** | `--resume` continues from an interrupted run, skipping already-scored tasks |
+| **Run resumption** | `--resume` continues from an interrupted run, skipping task-version/content-matched results |
 | **Task versioning** | `metadata.version` in task YAML propagates to JSONL for audit trails |
 | **Composite score** | Weighted cross-category score in summary table (coding/math/reasoning weighted higher) |
 | **Crash-safe results** | Incremental JSONL written after every task — restart safely |
@@ -160,8 +160,10 @@ python run.py --output my_results       # custom output directory
 | `json_keys` | Response parses as JSON and contains all `keys` |
 | `line_count` | Non-empty line count equals `count` |
 | `code_exec` | Generated code block executes and prints `PASS` (needs `--allow-code-exec`) |
-| `pass_at_k` | Any of `k` independent attempts passes `inner_type` scoring (needs `--allow-code-exec`) |
+| `logprob_choice` | Highest-probability one-token choice matches `answer`/`value` |
+| `pass_at_k` | Estimates pass@k over `n`/`samples` independent attempts using `inner_type` scoring |
 | `llm_judge` | Judge LLM scores the response and returns `SCORE: N` (needs `judge.enabled: true`) |
+| `rubric_judge` | Judge LLM scores weighted criteria and returns `RUBRIC_SCORE: N` |
 
 ---
 
@@ -248,11 +250,11 @@ tasks:
     ...
 ```
 
-The `task_version` field appears in every JSONL result record for audit trails.
+The `task_version` and `task_hash` fields appear in every JSONL result record for audit trails. `--resume` only reuses a cached row when the model id, task id, task version, and task hash all match the current task definition.
 
 ### pass@k scoring
 
-Run a task k times and pass if any attempt succeeds:
+Run a task multiple times and estimate pass@k:
 
 ```yaml
 - id: code_challenge
@@ -260,11 +262,37 @@ Run a task k times and pass if any attempt succeeds:
   prompt: "Write a function called `solve(n)` ..."
   scoring:
     type: pass_at_k
-    k: 3
+    k: 3        # report pass@3
+    n: 5        # optional: draw 5 samples for a better estimator (alias: samples)
     inner_type: code_exec
     test_code: |
       assert solve(5) == 42
       print('PASS')
+```
+
+If `n`/`samples` is omitted, the runner uses `benchmark.runs_per_task`, but never fewer than `k`.
+
+### HF auto-config
+
+By default, runs do not contact Hugging Face. To opt into fetching `generation_config.json` / `config.json` for model IDs that contain `/`, enable:
+
+```yaml
+benchmark:
+  hf_auto_config: true
+```
+
+Fetched settings are recorded in result JSON/JSONL as `hf_generation_config`.
+
+### Dataset-driven tasks
+
+Dataset tasks can expand Hugging Face datasets into concrete prompts when the optional `datasets` extra is installed. Simple `--dry-run` validation does not expand datasets, avoiding network side effects during schema checks.
+
+Remote dataset code is not trusted by default. If a dataset truly requires it, opt in per task:
+
+```yaml
+dataset:
+  name: "example/dataset"
+  trust_remote_code: true
 ```
 
 ### LLM-as-judge
@@ -347,6 +375,10 @@ The summary table now includes a **Composite ★** row — a weighted average ac
 | **Sentence-based writing tasks** | Tasks that ask for "N sentences" now instruct the model to output one sentence per line, making `line_count` scoring reliable |
 | **Accent-insensitive `contains_n` / `ends_with` / `fuzzy_match`** | All remaining string-comparison scorers updated to use NFKD normalisation, consistent with `contains`; e.g. `"cafe"` matches `"café"` in all four scorer types |
 | **`pass_at_k` n > k sampling** | `score_pass_at_k` now reads `k` from `task["scoring"]["k"]` (falling back to `len(run_results)`), enabling over-sampling (`n > k`) with the Chen et al. 2021 unbiased estimator |
+| **Version-safe resume** | `--resume` now hydrates cached rows into reports and only skips results with matching model id, task id, task version, and task hash |
+| **HF auto-config opt-in** | Hugging Face generation-config fetches are disabled by default and recorded in result metadata when enabled |
+| **Safer dataset expansion** | `--dry-run` validates dataset task schema without expansion; Hugging Face `trust_remote_code` defaults to false |
+| **Robust `json_keys` parsing** | Scoring now scans for valid JSON objects instead of using a greedy brace regex |
 
 ---
 

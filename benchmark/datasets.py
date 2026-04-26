@@ -97,9 +97,18 @@ def expand_dataset_task(task_def: dict) -> list[dict]:
 
     try:
         if subset:
-            ds = datasets_lib.load_dataset(ds_name, subset, split=split, trust_remote_code=True)
+            ds = datasets_lib.load_dataset(
+                ds_name,
+                subset,
+                split=split,
+                trust_remote_code=bool(ds_cfg.get("trust_remote_code", False)),
+            )
         else:
-            ds = datasets_lib.load_dataset(ds_name, split=split, trust_remote_code=True)
+            ds = datasets_lib.load_dataset(
+                ds_name,
+                split=split,
+                trust_remote_code=bool(ds_cfg.get("trust_remote_code", False)),
+            )
     except Exception as e:
         logger.warning(f"Failed to load dataset {ds_name}/{subset}: {e}")
         return []

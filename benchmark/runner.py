@@ -86,7 +86,11 @@ class ModelRunner:
         self.model_id = model_id
         self.bench = bench_config
         self._client = backend.get_openai_client()
-        self.hf_generation_config = self._fetch_hf_config(model_id)
+        self.hf_generation_config = (
+            self._fetch_hf_config(model_id)
+            if self.bench.get("hf_auto_config", False)
+            else {}
+        )
 
     def _fetch_hf_config(self, model_id: str) -> dict:
         """Attempt to fetch optimal generation parameters directly from Hugging Face."""
@@ -284,6 +288,7 @@ class ModelRunner:
             "reasoning_tokens": 0,
             "backend": self.backend.name,
             "logprob_detail": logprob_detail,
+            "hf_generation_config": dict(self.hf_generation_config),
             **telemetry_data,
         }
 
@@ -424,6 +429,7 @@ class ModelRunner:
             "completion_tokens": completion_tokens,
             "reasoning_tokens": reasoning_tokens,
             "backend": self.backend.name,
+            "hf_generation_config": dict(self.hf_generation_config),
             **telemetry_data,
         }
 

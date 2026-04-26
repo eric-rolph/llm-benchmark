@@ -57,7 +57,11 @@ def _expand_dataset_tasks(task: dict) -> list[dict]:
         return []
 
 
-def load_tasks(category_filter: str | None = None, validate: bool = True) -> list[dict]:
+def load_tasks(
+    category_filter: str | None = None,
+    validate: bool = True,
+    expand_datasets: bool = True,
+) -> list[dict]:
     if not TASKS_DIR.exists():
         raise FileNotFoundError(f"Tasks directory not found: {TASKS_DIR}")
 
@@ -79,8 +83,9 @@ def load_tasks(category_filter: str | None = None, validate: bool = True) -> lis
             if validate:
                 _validate_task(task, yaml_file.name, i)
 
-            # Expand dataset tasks into concrete tasks
-            expanded = _expand_dataset_tasks(task)
+            # Expand dataset tasks into concrete tasks for real runs. Dry-run
+            # validation can skip expansion to avoid network/dataset side effects.
+            expanded = _expand_dataset_tasks(task) if expand_datasets else [task]
 
             for t in expanded:
                 if validate:

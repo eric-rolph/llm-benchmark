@@ -50,10 +50,55 @@ from benchmark.reporter import print_report, print_task_result, save_results, ap
 from benchmark.runner import ModelRunner
 from benchmark.scorer import score_response, score_pass_at_k
 from benchmark.arena import run_arena, print_arena_leaderboard
+from benchmark.utils import task_fingerprint
 
 console = make_console()
 
 TASK_DIR = Path(__file__).parent / "tasks"
+
+
+def _cache_key(model_id: str, task: dict) -> tuple[str, str, str, str]:
+    """Key cached results by model, task id, declared version, and task content."""
+    return (
+        model_id,
+        task["id"],
+        str(task.get("_version", "")),
+        task_fingerprint(task),
+    )
+
+
+def _record_cache_key(record: dict) -> tuple[str, str, str, str]:
+    """Build the resume key stored in JSONL records."""
+    return (
+        record.get("model_id", record.get("model", "")),
+        record.get("task_id", ""),
+        str(record.get("task_version", "")),
+        record.get("task_hash", ""),
+    )
+
+
+def _hydrate_cached_result(task: dict, record: dict) -> dict:
+    """Convert a cached JSONL row back into a scored result for reporting."""
+    return {
+        "task_id": task["id"],
+        "task": task,
+        "response": record.get("response_preview", ""),
+        "error": None,
+        "score": float(record.get("score", 0.0)),
+        "max_score": 1.0,
+        "score_detail": record.get("score_detail", ""),
+        "tps": record.get("tps"),
+        "ttft_ms": record.get("ttft_ms"),
+        "total_ms": record.get("total_ms"),
+        "completion_tokens": record.get("completion_tokens"),
+        "reasoning_tokens": record.get("reasoning_tokens", 0),
+        "peak_vram_mb": record.get("peak_vram_mb"),
+        "avg_gpu_util": record.get("avg_gpu_util"),
+        "backend": record.get("backend", "?"),
+        "model_id": record.get("model_id", record.get("model", "?")),
+        "logprob_detail": record.get("logprob_detail"),
+        "hf_generation_config": record.get("hf_generation_config"),
+    }
 
 
 def _run_model(
@@ -61,7 +106,7 @@ def _run_model(
     backend,
     tasks: list[dict],
     bench_config: dict,
-    cached_keys: set,
+    cached_records: dict,
     jsonl_path: Path,
     allow_code_exec: bool,
     no_autoload: bool,
@@ -69,21 +114,29 @@ def _run_model(
     judge_model: str | None,
 ) -> list[dict]:
     """Run all tasks for one model and return the list of scored results."""
-    runner = ModelRunner(backend, model_info.id, bench_config)
-
-    if backend.config.get("auto_load", False) and not no_autoload:
-        runner.ensure_model_loaded()
-
+    runner = None
     model_results: list = []
     for task in tasks:
-        if (model_info.id, task["id"]) in cached_keys:
+        cache_key = _cache_key(model_info.id, task)
+        if cache_key in cached_records:
             console.print(f"  [dim]\u21a9  {task['id']:40s}  (cached \u2014 skipped)[/dim]")
+            model_results.append(_hydrate_cached_result(task, cached_records[cache_key]))
             continue
+
+        if runner is None:
+            runner = ModelRunner(backend, model_info.id, bench_config)
+            if backend.config.get("auto_load", False) and not no_autoload:
+                runner.ensure_model_loaded()
 
         scoring_type = task.get("scoring", {}).get("type")
         if scoring_type == "pass_at_k":
             k = task["scoring"].get("k", bench_config.get("runs_per_task", 3))
-            raws = runner.run_task_k(task, k)
+            n = task["scoring"].get(
+                "n",
+                task["scoring"].get("samples", bench_config.get("runs_per_task", k)),
+            )
+            n = max(int(k), int(n))
+            raws = runner.run_task_k(task, n)
             scored = score_pass_at_k(
                 task, raws,
                 allow_code_exec=allow_code_exec,
@@ -258,7 +311,7 @@ def main():
     if args.dry_run:
         console.print("\n[bold]Dry-run mode[/bold] — validating task files…")
         try:
-            tasks_all = load_tasks(validate=True)
+            tasks_all = load_tasks(validate=True, expand_datasets=False)
             cats = sorted(set(t["category"] for t in tasks_all))
             console.print(f"  [green]✓[/green]  {len(tasks_all)} tasks loaded across {len(cats)} categories: {cats}")
         except (ValueError, FileNotFoundError) as e:
@@ -350,7 +403,7 @@ def main():
     _out_dir = Path(args.output)
     _out_dir.mkdir(exist_ok=True)
     _resume = bench_config.get("resume", False) or args.resume
-    _cached_keys: set = set()
+    _cached_records: dict = {}
     if _resume:
         _existing = sorted(_out_dir.glob("results_*.jsonl"))
         if _existing:
@@ -359,10 +412,12 @@ def main():
                 for _line in _fh:
                     try:
                         _rec = json.loads(_line)
-                        _cached_keys.add((_rec.get("model_id", _rec.get("model", "")), _rec["task_id"]))
+                        _key = _record_cache_key(_rec)
+                        if _key[0] and _key[1] and _key[3]:
+                            _cached_records[_key] = _rec
                     except (ValueError, KeyError):
                         pass
-            console.print(f"[dim]Resuming from {_jsonl_path.name} — {len(_cached_keys)} cached result(s)[/dim]")
+            console.print(f"[dim]Resuming from {_jsonl_path.name} — {len(_cached_records)} compatible cached result(s)[/dim]")
         else:
             _jsonl_path = _out_dir / f"results_{_ts}.jsonl"
             console.print("[dim]--resume: no existing JSONL found — starting fresh[/dim]")
@@ -379,7 +434,7 @@ def main():
             backend=backend,
             tasks=tasks,
             bench_config=bench_config,
-            cached_keys=_cached_keys,
+            cached_records=_cached_records,
             jsonl_path=_jsonl_path,
             allow_code_exec=args.allow_code_exec,
             no_autoload=args.no_autoload,
@@ -391,9 +446,10 @@ def main():
         passed   = sum(1 for r in model_results if r["score"] >= 1.0)
         tps_vals = [r["tps"] for r in model_results if r.get("tps")]
         avg_tps  = sum(tps_vals) / len(tps_vals) if tps_vals else 0
+        score_pct = passed / len(model_results) * 100 if model_results else 0
         console.print(
             f"\n  [bold]Score: {passed}/{len(model_results)} "
-            f"({passed / len(model_results) * 100:.0f}%)  "
+            f"({score_pct:.0f}%)  "
             f"Avg TPS: {avg_tps:.1f}[/bold]\n"
         )
 

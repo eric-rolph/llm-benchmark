@@ -292,6 +292,20 @@ class TestJsonKeys:
         assert s == 0.0
         assert "No JSON" in d
 
+    def test_multiple_json_objects_uses_valid_matching_object(self):
+        s, _ = score(
+            {"type": "json_keys", "keys": ["email"]},
+            'First: {"name": "Alice"} Second: {"email": "a@example.com"}',
+        )
+        assert s == 1.0
+
+    def test_ignores_invalid_brace_text_before_valid_json(self):
+        s, _ = score(
+            {"type": "json_keys", "keys": ["name"]},
+            'Not JSON: {name: Alice}. Valid JSON: {"name": "Alice"}',
+        )
+        assert s == 1.0
+
 
 # ── line_count ────────────────────────────────────────────────────────────────
 

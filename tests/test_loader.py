@@ -150,3 +150,30 @@ def test_validate_dataset_task_does_not_require_prompt():
         {"id": "ds_test", "category": "knowledge", "dataset": {"name": "test"}, "template": "{{ q }}", "scoring": {"type": "exact"}},
         "test.yaml", 0
     )
+
+
+def test_load_tasks_can_validate_dataset_tasks_without_expanding(tmp_path, monkeypatch):
+    (tmp_path / "dataset.yaml").write_text(
+        """
+- id: ds_test
+  category: knowledge
+  dataset:
+    name: example/dataset
+  template: "{{ question }}"
+  scoring:
+    type: exact
+    answer_field: answer
+""".strip(),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr("benchmark.loader.TASKS_DIR", tmp_path)
+
+    def fail_expand(task):
+        raise AssertionError("dry-run validation should not expand datasets")
+
+    monkeypatch.setattr("benchmark.loader._expand_dataset_tasks", fail_expand)
+
+    tasks = load_tasks(validate=True, expand_datasets=False)
+
+    assert len(tasks) == 1
+    assert tasks[0]["id"] == "ds_test"
