@@ -1,0 +1,63 @@
+# tasks/vision.yaml — Vision-Language model evaluation tasks
+# These tasks test multi-modal models (LLaVA, Qwen-VL, Gemma PaliGemma, etc.)
+#
+# ⚠️  Requires a vision-capable model loaded in your backend.
+#     Text-only models will return errors for these tasks — that is expected.
+#     The suite handles this gracefully (score=0 with an error note).
+#
+# Supports:
+#   image_url:  remote image URL (auto-fetched and base64-encoded for local backends)
+#   image_path: local file path (auto base64-encoded)
+#   Both can be a single string or a list for multi-image tasks.
+
+metadata:
+  version: 1
+  description: "Vision-language benchmark tasks"
+
+tasks:
+  - id: vision_describe_dog
+    category: reasoning
+    difficulty: easy
+    prompt: "Describe what you see in this image in 1-2 sentences."
+    image_url: "https://picsum.photos/id/237/400/300"
+    scoring:
+      type: contains
+      value: "dog"
+
+  - id: vision_describe_mountain
+    category: reasoning
+    difficulty: easy
+    prompt: "What is the main subject of this photograph? Answer in one word."
+    image_url: "https://picsum.photos/id/29/400/300"
+    scoring:
+      type: fuzzy_match
+      value: "mountain"
+
+  - id: vision_count_colors
+    category: reasoning
+    difficulty: medium
+    prompt: "How many distinct colors do you see in this image? Answer with just the number."
+    image_url: "https://picsum.photos/id/137/400/300"
+    scoring:
+      type: llm_judge
+      criteria: "Does the response give a reasonable count of the distinct colors visible in the image?"
+
+  - id: vision_describe_scene
+    category: writing
+    difficulty: medium
+    prompt: "Describe this image in 2-3 sentences. Focus on the main subject and setting."
+    image_url: "https://picsum.photos/id/1015/400/300"
+    scoring:
+      type: word_count
+      min: 10
+      max: 80
+
+  - id: vision_spatial_reasoning
+    category: reasoning
+    difficulty: hard
+    prompt: "Describe the spatial relationship between the objects in this image. What is in the foreground vs background?"
+    image_url: "https://picsum.photos/id/1025/400/300"
+    scoring:
+      type: word_count
+      min: 15
+      max: 120

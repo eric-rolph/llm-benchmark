@@ -13,11 +13,23 @@ from benchmark.backends.base import Backend, ModelInfo
 from benchmark.backends.lm_studio import LMStudioBackend
 from benchmark.backends.ollama import OllamaBackend
 from benchmark.backends.llamacpp import LlamaCppBackend
+from benchmark.backends.vllm import VLLMBackend
+from benchmark.backends.sglang import SGLangBackend
+from benchmark.backends.tensorrt import TensorRTBackend
+from benchmark.backends.tgi import TGIBackend
+from benchmark.backends.ktransformers import KTransformersBackend
+from benchmark.backends.generic_openai import GenericOpenAIBackend
 
 _REGISTRY: dict[str, type[Backend]] = {
     "lm_studio": LMStudioBackend,
     "ollama": OllamaBackend,
     "llamacpp": LlamaCppBackend,
+    "vllm": VLLMBackend,
+    "sglang": SGLangBackend,
+    "tensorrt": TensorRTBackend,
+    "tgi": TGIBackend,
+    "ktransformers": KTransformersBackend,
+    "generic_openai": GenericOpenAIBackend,
 }
 
 
@@ -67,5 +79,7 @@ def discover_all_models(config: dict) -> list[ModelInfo]:
 __all__ = [
     "Backend", "ModelInfo",
     "LMStudioBackend", "OllamaBackend", "LlamaCppBackend",
+    "VLLMBackend", "SGLangBackend", "TensorRTBackend", "TGIBackend",
+    "KTransformersBackend", "GenericOpenAIBackend",
     "create_backend", "discover_all_models",
 ]

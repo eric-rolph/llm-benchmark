@@ -10,9 +10,70 @@ Thinking model support (Qwen3, Kimi K2, DeepSeek-R1, Nemotron, etc.):
 from __future__ import annotations
 
 import time
+import requests
+import subprocess
+import threading
 
 from benchmark.backends.base import Backend
+from benchmark.console import make_console
 from benchmark.utils import strip_thinking, _avg
+
+console = make_console()
+
+
+class TelemetryTracker:
+    """Background thread that polls nvidia-smi for peak VRAM and GPU utilization."""
+    def __init__(self):
+        self.running = False
+        self.thread = None
+        self.peak_vram_mb = 0
+        self.utils = []
+        self._smi_available = True
+
+    def _poll(self):
+        while self.running and self._smi_available:
+            try:
+                # --query-gpu=memory.used,utilization.gpu --format=csv,noheader,nounits
+                # Example output: "12543, 85\n12000, 70" (for multiple GPUs)
+                proc = subprocess.run(
+                    ["nvidia-smi", "--query-gpu=memory.used,utilization.gpu", "--format=csv,noheader,nounits"],
+                    capture_output=True, text=True, timeout=1.0
+                )
+                if proc.returncode == 0:
+                    lines = proc.stdout.strip().split("\n")
+                    total_vram = 0
+                    total_util = 0
+                    for line in lines:
+                        parts = line.split(",")
+                        if len(parts) >= 2:
+                            try:
+                                total_vram += int(parts[0].strip())
+                                total_util += int(parts[1].strip())
+                            except ValueError:
+                                pass
+                    self.peak_vram_mb = max(self.peak_vram_mb, total_vram)
+                    if lines:
+                        self.utils.append(total_util / len(lines)) # avg util across GPUs
+            except (FileNotFoundError, subprocess.TimeoutExpired):
+                self._smi_available = False
+            time.sleep(0.5)
+
+    def start(self):
+        self.running = True
+        self.thread = threading.Thread(target=self._poll, daemon=True)
+        self.thread.start()
+
+    def stop(self) -> dict:
+        self.running = False
+        if self.thread and self.thread.is_alive():
+            self.thread.join(timeout=1.0)
+        
+        result = {}
+        if self.peak_vram_mb > 0:
+            result["peak_vram_mb"] = self.peak_vram_mb
+        if self.utils:
+            result["avg_gpu_util"] = sum(self.utils) / len(self.utils)
+        return result
 
 
 class ModelRunner:
@@ -25,15 +86,52 @@ class ModelRunner:
         self.model_id = model_id
         self.bench = bench_config
         self._client = backend.get_openai_client()
+        self.hf_generation_config = (
+            self._fetch_hf_config(model_id)
+            if self.bench.get("hf_auto_config", False)
+            else {}
+        )
+
+    def _fetch_hf_config(self, model_id: str) -> dict:
+        """Attempt to fetch optimal generation parameters directly from Hugging Face."""
+        if "/" not in model_id:
+            return {}
+        
+        config = {}
+        headers = {"User-Agent": "LLMBenchmarkSuite/1.0"}
+        urls_to_check = [
+            f"https://huggingface.co/{model_id}/raw/main/generation_config.json",
+            f"https://huggingface.co/{model_id}/raw/main/config.json"
+        ]
+        
+        for url in urls_to_check:
+            for attempt in range(2):
+                try:
+                    r = requests.get(url, headers=headers, timeout=5)
+                    if r.status_code == 200:
+                        data = r.json()
+                        for key in ["temperature", "top_p", "repetition_penalty", "max_new_tokens", "top_k"]:
+                            if key in data and key not in config:
+                                config[key] = data[key]
+                        break  # Success, move to next URL (or exit if we have everything, but we'll check both just in case)
+                except Exception:
+                    if attempt == 0:
+                        time.sleep(1) # wait before retry
+            
+        if config:
+            console.print(f"  [dim]↳ Auto-loaded generation params from HF for {model_id} (e.g. temp={config.get('temperature', 'N/A')}, rep_penalty={config.get('repetition_penalty', 'N/A')})[/dim]")
+            
+        return config
 
     # ── model loading ────────────────────────────────────────────────────────
 
     def ensure_model_loaded(self) -> None:
         self.backend.ensure_model_loaded(self.model_id)
 
-    # ── task execution ───────────────────────────────────────────────────────
+    # ── message construction ────────────────────────────────────────────────
 
-    def _run_once(self, task: dict) -> dict:
+    def _build_messages(self, task: dict) -> list[dict]:
+        """Build the standard chat message list from a task definition."""
         messages: list[dict] = []
         if task.get("system"):
             messages.append({"role": "system", "content": task["system"]})
@@ -41,13 +139,187 @@ class ModelRunner:
         for example in task.get("few_shot", []):
             messages.append({"role": "user",      "content": str(example.get("user", ""))})
             messages.append({"role": "assistant",  "content": str(example.get("assistant", ""))})
-        messages.append({"role": "user", "content": task["prompt"]})
 
-        temperature = task.get("temperature", self.bench.get("temperature", 0.0))
-        max_tokens  = task.get("max_tokens",  self.bench.get("max_tokens", 4096))
+        # Vision tasks: build multi-part content with image(s)
+        if task.get("image_url") or task.get("image_path"):
+            messages.append(self._build_vision_message(task))
+        else:
+            messages.append({"role": "user", "content": task["prompt"]})
+        return messages
+
+    @staticmethod
+    def _build_vision_message(task: dict) -> dict:
+        """
+        Build a multi-part user message with text + image content for
+        vision-language models (LLaVA, Qwen-VL, etc.).
+
+        Supports both remote URLs and local file paths.  Remote URLs are
+        automatically fetched and base64-encoded because most local backends
+        (LM Studio, llama.cpp, Ollama) require inline base64 data URIs rather
+        than remote URLs.
+        """
+        import base64
+        from pathlib import Path
+
+        content: list[dict] = [
+            {"type": "text", "text": task["prompt"]}
+        ]
+
+        def _url_to_base64(url: str) -> str | None:
+            """Download a remote image and return a base64 data URI."""
+            try:
+                r = requests.get(url, timeout=15, headers={"User-Agent": "LLMBenchmarkSuite/1.0"})
+                r.raise_for_status()
+                ct = r.headers.get("Content-Type", "image/png")
+                # Clean up content-type (may include charset)
+                mime = ct.split(";")[0].strip()
+                if "/" not in mime:
+                    mime = "image/png"
+                data = base64.b64encode(r.content).decode("utf-8")
+                return f"data:{mime};base64,{data}"
+            except Exception:
+                return None
+
+        # Remote image URL → auto-fetch and convert to base64 for local backends
+        if task.get("image_url"):
+            urls = task["image_url"] if isinstance(task["image_url"], list) else [task["image_url"]]
+            for url in urls:
+                data_uri = _url_to_base64(url)
+                content.append({
+                    "type": "image_url",
+                    "image_url": {"url": data_uri or url}
+                })
+
+        # Local image file path (base64 encoded)
+        if task.get("image_path"):
+            paths = task["image_path"] if isinstance(task["image_path"], list) else [task["image_path"]]
+            for img_path in paths:
+                p = Path(img_path)
+                if p.exists():
+                    data = base64.b64encode(p.read_bytes()).decode("utf-8")
+                    # Detect MIME type from extension
+                    ext = p.suffix.lower()
+                    mime_map = {".png": "image/png", ".jpg": "image/jpeg",
+                                ".jpeg": "image/jpeg", ".gif": "image/gif",
+                                ".webp": "image/webp"}
+                    mime = mime_map.get(ext, "image/png")
+                    content.append({
+                        "type": "image_url",
+                        "image_url": {"url": f"data:{mime};base64,{data}"}
+                    })
+
+        return {"role": "user", "content": content}
+
+    # ── task execution ───────────────────────────────────────────────────────
+
+    def _run_once_logprobs(self, task: dict) -> dict:
+        """
+        Non-streaming logprobs evaluation for multiple-choice tasks.
+
+        Instead of generating text, we request logprobs for a single token
+        and check which choice letter (A, B, C, D, etc.) has the highest
+        probability. This allows reliable evaluation of base (non-instruct)
+        models that don't produce clean formatted answers.
+        """
+        messages = self._build_messages(task)
+        hf_cfg = getattr(self, "hf_generation_config", {})
+        temperature = task.get("temperature", hf_cfg.get("temperature", self.bench.get("temperature", 0.0)))
         req_timeout = self.bench.get("timeout", 180)
 
+        t_start = time.perf_counter()
+        telemetry = TelemetryTracker()
+        telemetry.start()
+
+        try:
+            resp = self._client.chat.completions.create(
+                model=self.model_id,
+                messages=messages,
+                temperature=temperature,
+                max_tokens=1,
+                logprobs=True,
+                top_logprobs=5,
+                stream=False,
+                timeout=req_timeout,
+            )
+        except Exception as e:
+            telemetry.stop()
+            return {
+                "task_id": task["id"],
+                "response": "",
+                "error": str(e),
+                "ttft_ms": None,
+                "total_ms": None,
+                "tps": None,
+                "completion_tokens": 0,
+                "reasoning_tokens": 0,
+                "backend": self.backend.name,
+            }
+
+        telemetry_data = telemetry.stop()
+        t_end = time.perf_counter()
+        total_ms = (t_end - t_start) * 1000
+
+        # Extract the choice with highest logprob
+        choice_text = resp.choices[0].message.content or ""
+        logprob_detail = ""
+
+        lp_content = getattr(resp.choices[0], "logprobs", None)
+        if lp_content and hasattr(lp_content, "content") and lp_content.content:
+            top_entries = lp_content.content[0].top_logprobs
+            # Build a readable summary of probabilities
+            probs = {e.token.strip(): e.logprob for e in top_entries}
+            sorted_probs = sorted(probs.items(), key=lambda x: x[1], reverse=True)
+            logprob_detail = " | ".join(f"{tok}={lp:.2f}" for tok, lp in sorted_probs)
+            # The response is the highest-probability token
+            if sorted_probs:
+                choice_text = sorted_probs[0][0]
+
+        completion_tokens = getattr(resp.usage, "completion_tokens", 0) if resp.usage else 0
+
+        return {
+            "task_id": task["id"],
+            "response": choice_text,
+            "reasoning_preview": None,
+            "error": None,
+            "ttft_ms": round(total_ms, 1),  # Non-streaming: TTFT ≈ total
+            "total_ms": round(total_ms, 1),
+            "tps": None,  # Not meaningful for 1-token generation
+            "completion_tokens": completion_tokens,
+            "reasoning_tokens": 0,
+            "backend": self.backend.name,
+            "logprob_detail": logprob_detail,
+            "hf_generation_config": dict(self.hf_generation_config),
+            **telemetry_data,
+        }
+
+    def _run_once(self, task: dict) -> dict:
+        # Route logprob_choice tasks to the non-streaming logprobs evaluator
+        scoring_type = task.get("scoring", {}).get("type", "")
+        if scoring_type == "logprob_choice":
+            return self._run_once_logprobs(task)
+
+        messages = self._build_messages(task)
+
+        hf_cfg = getattr(self, "hf_generation_config", {})
+        
+        # Override order: Task > HuggingFace > Global Benchmark Config
+        temperature = task.get("temperature", hf_cfg.get("temperature", self.bench.get("temperature", 0.0)))
+        max_tokens  = task.get("max_tokens",  hf_cfg.get("max_new_tokens", self.bench.get("max_tokens", 4096)))
+        req_timeout = self.bench.get("timeout", 180)
+
+        # Pull other useful HF params if they exist
+        top_p       = task.get("top_p", hf_cfg.get("top_p"))
+        top_k       = task.get("top_k", hf_cfg.get("top_k"))
+        rep_penalty = task.get("repetition_penalty", hf_cfg.get("repetition_penalty"))
+
         extra_params = self.backend.get_extra_chat_params(task)
+        
+        # extra_body passes non-standard kwargs (like top_k, repetition_penalty) to the server
+        extra_body = extra_params.pop("extra_body", {})
+        if top_k is not None:
+            extra_body["top_k"] = top_k
+        if rep_penalty is not None:
+            extra_body["repetition_penalty"] = rep_penalty
 
         t_start = time.perf_counter()
         t_first_reasoning: float | None = None
@@ -56,18 +328,27 @@ class ModelRunner:
         reasoning_text = ""
         completion_tokens = 0
         reasoning_tokens  = 0
+        
+        telemetry = TelemetryTracker()
+        telemetry.start()
 
         try:
-            stream = self._client.chat.completions.create(
-                model=self.model_id,
-                messages=messages,
-                temperature=temperature,
-                max_tokens=max_tokens,
-                stream=True,
-                stream_options={"include_usage": True},
-                timeout=req_timeout,
+            kwargs = {
+                "model": self.model_id,
+                "messages": messages,
+                "temperature": temperature,
+                "max_tokens": max_tokens,
+                "stream": True,
+                "stream_options": {"include_usage": True},
+                "timeout": req_timeout,
                 **extra_params,
-            )
+            }
+            if top_p is not None:
+                kwargs["top_p"] = top_p
+            if extra_body:
+                kwargs["extra_body"] = extra_body
+
+            stream = self._client.chat.completions.create(**kwargs)
             for chunk in stream:
                 if chunk.choices:
                     delta = chunk.choices[0].delta
@@ -104,6 +385,7 @@ class ModelRunner:
                             reasoning_tokens = int(rt)
 
         except Exception as e:
+            telemetry.stop()
             return {
                 "task_id": task["id"],
                 "response": "",
@@ -116,6 +398,7 @@ class ModelRunner:
                 "backend": self.backend.name,
             }
 
+        telemetry_data = telemetry.stop()
         t_end = time.perf_counter()
         total_ms = (t_end - t_start) * 1000
 
@@ -146,6 +429,8 @@ class ModelRunner:
             "completion_tokens": completion_tokens,
             "reasoning_tokens": reasoning_tokens,
             "backend": self.backend.name,
+            "hf_generation_config": dict(self.hf_generation_config),
+            **telemetry_data,
         }
 
     def run_task(self, task: dict) -> dict:
@@ -166,6 +451,9 @@ class ModelRunner:
             "ttft_ms":  round(avg_ttft,  1) if avg_ttft  is not None else None,
             "total_ms": round(avg_total, 1) if avg_total is not None else None,
             "tps":      round(avg_tps,   1) if avg_tps   is not None else None,
+            # All individual run results — used by run.py to compute score variance.
+            # Prefixed with _ to signal it is internal/transient (not written to JSONL).
+            "_all_runs": results,
         }
 
     def run_task_k(self, task: dict, k: int) -> list[dict]:

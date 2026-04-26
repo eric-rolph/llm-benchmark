@@ -4,6 +4,7 @@
 
 - id: capital_france
   category: knowledge
+  difficulty: easy
   prompt: "What is the capital of France? Answer with just the city name."
   scoring:
     type: contains
@@ -11,6 +12,7 @@
 
 - id: element_tungsten
   category: knowledge
+  difficulty: medium
   prompt: "What is the chemical symbol for tungsten? Answer with just the symbol."
   scoring:
     type: exact
@@ -18,6 +20,7 @@
 
 - id: atomic_number_gold
   category: knowledge
+  difficulty: medium
   prompt: "What is the atomic number of gold? Answer with just the number."
   scoring:
     type: numeric
@@ -26,6 +29,7 @@
 
 - id: berlin_wall_fall
   category: knowledge
+  difficulty: easy
   prompt: "In what year did the Berlin Wall fall? Answer with just the year."
   scoring:
     type: numeric
@@ -34,6 +38,7 @@
 
 - id: byzantine_empire_fall
   category: knowledge
+  difficulty: medium
   prompt: "In what year did the Byzantine Empire fall? Answer with just the year."
   scoring:
     type: numeric
@@ -42,6 +47,7 @@
 
 - id: carbon14_halflife
   category: knowledge
+  difficulty: hard
   prompt: "What is the approximate half-life of Carbon-14 in years? Round to the nearest hundred."
   scoring:
     type: numeric
@@ -50,6 +56,7 @@
 
 - id: human_adult_bones
   category: knowledge
+  difficulty: easy
   prompt: "How many bones does a typical adult human body have? Answer with just the number."
   scoring:
     type: numeric
@@ -58,6 +65,7 @@
 
 - id: mars_moons
   category: knowledge
+  difficulty: easy
   prompt: "How many moons does Mars have? Answer with just the number."
   scoring:
     type: numeric
@@ -66,6 +74,7 @@
 
 - id: fourth_noble_gas
   category: knowledge
+  difficulty: medium
   prompt: "What is the name of the fourth element in the noble gas group (Group 18) of the periodic table? Answer with just the element name."
   scoring:
     type: contains
@@ -73,6 +82,7 @@
 
 - id: higgs_boson_year
   category: knowledge
+  difficulty: hard
   prompt: "In what year was the discovery of the Higgs boson experimentally confirmed at CERN? Answer with just the year."
   scoring:
     type: numeric
@@ -81,6 +91,7 @@
 
 - id: smallest_prime_gt100
   category: knowledge
+  difficulty: medium
   prompt: "What is the smallest prime number greater than 100? Answer with just the number."
   scoring:
     type: numeric
@@ -89,6 +100,7 @@
 
 - id: treaty_versailles
   category: knowledge
+  difficulty: easy
   prompt: "What is the name of the treaty that formally ended World War I? Answer with just the treaty name (no article)."
   scoring:
     type: contains
@@ -96,15 +108,16 @@
 
 - id: dna_strands
   category: knowledge
+  difficulty: easy
   prompt: "How many strands make up the double helix structure of DNA? Answer with just the number."
   scoring:
     type: numeric
     value: 2
     tolerance: 0
-    tolerance: 0
 
 - id: largest_ocean
   category: knowledge
+  difficulty: easy
   prompt: "What is the largest ocean on Earth? Answer with just the ocean name."
   scoring:
     type: contains
@@ -112,6 +125,7 @@
 
 - id: gravity_ms2
   category: knowledge
+  difficulty: easy
   prompt: "What is the approximate acceleration due to gravity on Earth's surface in m/s²? Answer with just the number."
   scoring:
     type: numeric

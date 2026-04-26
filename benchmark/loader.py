@@ -1,6 +1,14 @@
 """
 benchmark/loader.py — loads and validates task definitions from tasks/*.yaml
+
+Supports two task types:
+  1. Static tasks: standard {id, prompt, category, scoring} dicts
+  2. Dataset tasks: {id, category, dataset, template, scoring} dicts that
+     are expanded at load time via benchmark.datasets.expand_dataset_task()
 """
+from __future__ import annotations
+
+import logging
 from pathlib import Path
 
 import yaml
@@ -9,13 +17,24 @@ TASKS_DIR = Path(__file__).parent.parent / "tasks"
 
 _REQUIRED_FIELDS = {"id", "prompt", "category", "scoring"}
 
+# Dataset tasks have a different required set — they use template instead of prompt
+_DATASET_REQUIRED_FIELDS = {"id", "category", "dataset", "template", "scoring"}
+
+logger = logging.getLogger(__name__)
+
 
 def _validate_task(task: dict, source: str, index: int) -> None:
     """
     Raise ValueError if a task dict is missing required fields.
     Reports file name and task index so errors are immediately actionable.
+    Dataset tasks (those with a 'dataset' key) are validated against a
+    separate set of required fields.
     """
-    missing = _REQUIRED_FIELDS - task.keys()
+    if "dataset" in task:
+        required = _DATASET_REQUIRED_FIELDS
+    else:
+        required = _REQUIRED_FIELDS
+    missing = required - task.keys()
     if missing:
         raise ValueError(
             f"Task #{index} in '{source}' is missing required fields: {sorted(missing)}.\n"
@@ -23,11 +42,31 @@ def _validate_task(task: dict, source: str, index: int) -> None:
         )
 
 
-def load_tasks(category_filter: str | None = None, validate: bool = True) -> list[dict]:
+def _expand_dataset_tasks(task: dict) -> list[dict]:
+    """Expand a dataset-driven task into concrete task dicts, or return [task] for static tasks."""
+    if "dataset" not in task:
+        return [task]
+    try:
+        from benchmark.datasets import expand_dataset_task
+        return expand_dataset_task(task)
+    except ImportError as e:
+        logger.warning(f"Skipping dataset task '{task.get('id', '?')}': {e}")
+        return []
+    except Exception as e:
+        logger.warning(f"Error expanding dataset task '{task.get('id', '?')}': {e}")
+        return []
+
+
+def load_tasks(
+    category_filter: str | None = None,
+    validate: bool = True,
+    expand_datasets: bool = True,
+) -> list[dict]:
     if not TASKS_DIR.exists():
         raise FileNotFoundError(f"Tasks directory not found: {TASKS_DIR}")
 
     tasks: list[dict] = []
+    seen_ids: dict[str, str] = {}
     for yaml_file in sorted(TASKS_DIR.glob("*.yaml")):
         data = yaml.safe_load(yaml_file.read_text(encoding="utf-8"))
         # Support both a bare YAML list and a dict with a 'tasks' key
@@ -43,9 +82,23 @@ def load_tasks(category_filter: str | None = None, validate: bool = True) -> lis
         for i, task in enumerate(raw_tasks):
             if validate:
                 _validate_task(task, yaml_file.name, i)
-            if category_filter is None or task.get("category") == category_filter:
-                t = dict(task)
-                if file_version is not None:
-                    t["_version"] = file_version
-                tasks.append(t)
+
+            # Expand dataset tasks into concrete tasks for real runs. Dry-run
+            # validation can skip expansion to avoid network/dataset side effects.
+            expanded = _expand_dataset_tasks(task) if expand_datasets else [task]
+
+            for t in expanded:
+                if validate:
+                    task_id = t.get("id")
+                    if task_id in seen_ids:
+                        raise ValueError(
+                            f"Duplicate task id '{task_id}' in '{yaml_file.name}' "
+                            f"(already defined in '{seen_ids[task_id]}')."
+                        )
+                    seen_ids[task_id] = yaml_file.name
+                if category_filter is None or t.get("category") == category_filter:
+                    t = dict(t)
+                    if file_version is not None:
+                        t["_version"] = file_version
+                    tasks.append(t)
     return tasks

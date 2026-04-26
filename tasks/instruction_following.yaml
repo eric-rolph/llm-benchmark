@@ -1,6 +1,7 @@
 tasks:
   - id: instruct_001
     category: instruction_following
+    difficulty: medium
     description: "Count letters in word"
     prompt: "How many letters are in the word MISSISSIPPI? Reply with only the number."
     scoring:
@@ -10,6 +11,7 @@ tasks:
 
   - id: instruct_002
     category: instruction_following
+    difficulty: easy
     description: "Count specific character"
     prompt: "Count the letter 'r' in the word 'strawberry'. Reply with only the number."
     scoring:
@@ -19,6 +21,7 @@ tasks:
 
   - id: instruct_003
     category: instruction_following
+    difficulty: easy
     description: "String reversal"
     prompt: "Reverse the string 'benchmark'. Reply with only the reversed string and nothing else."
     scoring:
@@ -27,6 +30,7 @@ tasks:
 
   - id: instruct_004
     category: instruction_following
+    difficulty: medium
     description: "JSON structured output"
     prompt: "Respond in valid JSON only — no markdown, no explanation. Include exactly these keys: 'capital' (string) and 'population_millions' (number) for the country France."
     scoring:
@@ -35,6 +39,7 @@ tasks:
 
   - id: instruct_005
     category: instruction_following
+    difficulty: medium
     description: "Exact word-count sentence"
     prompt: |
       Write a sentence that is exactly 10 words long.
@@ -46,6 +51,7 @@ tasks:
 
   - id: instruct_006
     category: instruction_following
+    difficulty: easy
     description: "Element name from non-obvious symbol"
     prompt: "What is the name of the chemical element whose symbol is 'W'? Output only the element name, nothing else."
     scoring:
@@ -54,6 +60,7 @@ tasks:
 
   - id: instruct_007
     category: instruction_following
+    difficulty: easy
     description: "Exact list length"
     prompt: "List exactly 5 fruits, one per line. Use only the fruit names — no numbers, no bullets, no introduction, no explanation."
     scoring:
@@ -62,6 +69,7 @@ tasks:
 
   - id: instruct_008
     category: instruction_following
+    difficulty: medium
     description: "Binary conversion — no prefix"
     prompt: |
       Convert the number 42 to binary. Output only the binary digits with no prefix
@@ -72,6 +80,7 @@ tasks:
 
   - id: instruct_009
     category: instruction_following
+    difficulty: medium
     description: "Word count constraint — 50 to 70 words"
     prompt: |
       Write a single paragraph explaining what photosynthesis is.
@@ -84,6 +93,7 @@ tasks:
 
   - id: instruct_010
     category: instruction_following
+    difficulty: medium
     description: "Keyword repetition — 'network' at least 3 times"
     prompt: |
       Explain what the internet is in 2-4 sentences.
@@ -95,6 +105,7 @@ tasks:
 
   - id: instruct_011
     category: instruction_following
+    difficulty: hard
     description: "Forbidden words — no 'pet', 'friend', or 'loyal'"
     prompt: |
       Describe what a dog is in exactly 2 sentences.
@@ -105,6 +116,7 @@ tasks:
 
   - id: instruct_012
     category: instruction_following
+    difficulty: medium
     description: "Response must end with a specific word"
     prompt: |
       Write one sentence about what makes the ocean important to life on Earth.
@@ -115,6 +127,7 @@ tasks:
 
   - id: instruct_013
     category: instruction_following
+    difficulty: easy
     description: "Exactly 6 dash-prefixed bullet points"
     prompt: |
       List exactly 6 countries in Europe, one per line, each prefixed with a dash (e.g. "- France").
@@ -125,6 +138,7 @@ tasks:
 
   - id: instruct_014
     category: instruction_following
+    difficulty: medium
     description: "JSON output with three required keys for a city"
     prompt: |
       Respond in valid JSON only — no markdown fences, no explanation.
@@ -136,6 +150,7 @@ tasks:
 
   - id: instruct_015
     category: instruction_following
+    difficulty: easy
     description: "No hedging/apology language in direct factual answer"
     prompt: |
       What is the boiling point of water at sea level in Celsius?

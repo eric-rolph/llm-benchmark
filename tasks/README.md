@@ -36,6 +36,8 @@ tasks:
 | `prompt`   | string | The question or instruction sent to the model |
 | `scoring`  | dict   | Scoring configuration (see below) |
 
+Dataset-driven tasks use `dataset` + `template` instead of `prompt`; see [Dataset Tasks](#dataset-tasks).
+
 ## Optional Fields
 
 | Field         | Type    | Default | Description |
@@ -44,6 +46,8 @@ tasks:
 | `temperature` | float   | from config | Override per-task temperature |
 | `max_tokens`  | int     | from config | Override per-task token limit |
 | `thinking`    | boolean | false   | Request thinking/reasoning mode (Ollama only) |
+| `image_url`   | string/list | none | Remote image URL(s) for vision-language tasks |
+| `image_path`  | string/list | none | Local image path(s) for vision-language tasks |
 
 ---
 
@@ -87,7 +91,7 @@ scoring:
 ```
 
 ### `json_keys`
-Parses the first JSON object found in the response and checks for required keys.
+Scans the response for valid JSON objects and passes when one contains all required keys.
 
 ```yaml
 scoring:
@@ -123,9 +127,79 @@ scoring:
 The model is expected to return a code block containing a function named (e.g.) `add`.
 The `test_code` is appended to the extracted code and the full script is executed.
 
+### `logprob_choice`
+For multiple-choice/base-model tasks, asks the backend for one token with logprobs
+and compares the highest-probability token with the expected answer.
+
+```yaml
+scoring:
+  type: logprob_choice
+  value: "B"
+```
+
+### `pass_at_k`
+Runs multiple attempts and estimates pass@k using an inner scorer.
+
+```yaml
+scoring:
+  type: pass_at_k
+  k: 3
+  n: 5          # optional, alias: samples
+  inner_type: code_exec
+  test_code: |
+    assert solve(5) == 42
+    print("PASS")
+```
+
 ### `llm_judge`
-Placeholder for LLM-as-judge scoring. Requires `--judge` flag (not yet implemented).
-Currently returns `None` score marked for manual review.
+Scores subjective tasks with a configured judge model. Enable `judge.enabled: true`
+in `config.yaml`; the judge response must include a `SCORE: N` line.
+
+```yaml
+scoring:
+  type: llm_judge
+  criteria: "Does the response answer the prompt accurately and concisely?"
+```
+
+### `rubric_judge`
+Scores subjective tasks against weighted criteria with a configured judge model.
+
+```yaml
+scoring:
+  type: rubric_judge
+  criteria:
+    - criterion: "Directly answers the question"
+      weight: 2
+    - criterion: "Uses accurate facts"
+      weight: 3
+```
+
+---
+
+## Dataset Tasks
+
+Dataset-driven tasks use `dataset` + `template` instead of `prompt`. They are
+expanded only for real benchmark runs; dry-run schema validation does not load
+remote datasets.
+
+```yaml
+- id: mmlu_anatomy
+  category: knowledge
+  dataset:
+    name: "cais/mmlu"
+    subset: "anatomy"
+    split: "test"
+    limit: 100
+  template: |
+    Question: {{ question }}
+    Answer with just the letter.
+  scoring:
+    type: exact
+    answer_field: answer
+```
+
+`trust_remote_code` defaults to `false`. Set it to `true` inside `dataset:` only
+for datasets you explicitly trust.
 
 ---
 

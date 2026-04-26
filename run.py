@@ -5,18 +5,28 @@ Supported backends (configure in config.yaml):
   lm_studio   — LM Studio local server  (http://localhost:1234)
   ollama      — Ollama                  (http://localhost:11434)
   llamacpp    — llama.cpp server        (http://localhost:8080)
+  vllm        — vLLM                    (http://localhost:8000)
+  sglang      — SGLang                  (http://localhost:30000)
+  tgi         — Text Generation Inference
+  tensorrt    — TensorRT-LLM
+  ktransformers — KTransformers
+  generic_openai — Any OpenAI-compatible server
 
 Quick start:
   python run.py                          # auto-discover models, run all tasks
   python run.py --discover               # probe backends and list found models
   python run.py --dry-run                # validate task files + check backends, no inference
   python run.py --model "qwen3:8b"       # single model (all categories)
+  python run.py --model "modelA" "modelB"# multiple models (for arena mode)
   python run.py --backend ollama         # only Ollama models
   python run.py --category math          # single category
   python run.py --task capital_france    # single task by ID
   python run.py --no-autoload            # skip LM Studio model-load attempt
   python run.py --allow-code-exec        # enable code_exec scoring (runs model-generated Python)
   python run.py --ci-threshold 0.8       # exit 1 if overall score < 80%  (CI integration)
+  python run.py --html-report            # generate interactive HTML visual report
+  python run.py --arena                  # ELO arena: pairwise model competition with LLM judge
+  python run.py --compare old new        # compare two saved JSON/JSONL result files
   python run.py --limit 5                # smoke-test: first 5 tasks per category
   python run.py --resume                 # skip tasks already in the most recent results JSONL
 """
@@ -25,24 +35,72 @@ from __future__ import annotations
 import argparse
 import datetime
 import json
+import statistics
 import sys
 from pathlib import Path
 
 import yaml
-from rich.console import Console
 from rich.table import Table
 from rich import box
 
 from benchmark.backends import create_backend, discover_all_models
 from benchmark.backends.base import ModelInfo
+from benchmark.console import make_console
 from benchmark.loader import load_tasks
-from benchmark.reporter import print_report, print_task_result, save_results, append_jsonl
+from benchmark.reporter import print_report, print_task_result, save_results, append_jsonl, save_html_report
 from benchmark.runner import ModelRunner
 from benchmark.scorer import score_response, score_pass_at_k
+from benchmark.arena import run_arena, print_arena_leaderboard, save_arena_results
+from benchmark.compare import compare_result_files
+from benchmark.utils import task_fingerprint
 
-console = Console()
+console = make_console()
 
 TASK_DIR = Path(__file__).parent / "tasks"
+
+
+def _cache_key(model_id: str, task: dict) -> tuple[str, str, str, str]:
+    """Key cached results by model, task id, declared version, and task content."""
+    return (
+        model_id,
+        task["id"],
+        str(task.get("_version", "")),
+        task_fingerprint(task),
+    )
+
+
+def _record_cache_key(record: dict) -> tuple[str, str, str, str]:
+    """Build the resume key stored in JSONL records."""
+    return (
+        record.get("model_id", record.get("model", "")),
+        record.get("task_id", ""),
+        str(record.get("task_version", "")),
+        record.get("task_hash", ""),
+    )
+
+
+def _hydrate_cached_result(task: dict, record: dict) -> dict:
+    """Convert a cached JSONL row back into a scored result for reporting."""
+    return {
+        "task_id": task["id"],
+        "task": task,
+        "response": record.get("response_preview", ""),
+        "error": None,
+        "score": float(record.get("score", 0.0)),
+        "max_score": 1.0,
+        "score_detail": record.get("score_detail", ""),
+        "tps": record.get("tps"),
+        "ttft_ms": record.get("ttft_ms"),
+        "total_ms": record.get("total_ms"),
+        "completion_tokens": record.get("completion_tokens"),
+        "reasoning_tokens": record.get("reasoning_tokens", 0),
+        "peak_vram_mb": record.get("peak_vram_mb"),
+        "avg_gpu_util": record.get("avg_gpu_util"),
+        "backend": record.get("backend", "?"),
+        "model_id": record.get("model_id", record.get("model", "?")),
+        "logprob_detail": record.get("logprob_detail"),
+        "hf_generation_config": record.get("hf_generation_config"),
+    }
 
 
 def _run_model(
@@ -50,7 +108,7 @@ def _run_model(
     backend,
     tasks: list[dict],
     bench_config: dict,
-    cached_keys: set,
+    cached_records: dict,
     jsonl_path: Path,
     allow_code_exec: bool,
     no_autoload: bool,
@@ -58,21 +116,29 @@ def _run_model(
     judge_model: str | None,
 ) -> list[dict]:
     """Run all tasks for one model and return the list of scored results."""
-    runner = ModelRunner(backend, model_info.id, bench_config)
-
-    if backend.config.get("auto_load", False) and not no_autoload:
-        runner.ensure_model_loaded()
-
+    runner = None
     model_results: list = []
     for task in tasks:
-        if (model_info.id, task["id"]) in cached_keys:
+        cache_key = _cache_key(model_info.id, task)
+        if cache_key in cached_records:
             console.print(f"  [dim]\u21a9  {task['id']:40s}  (cached \u2014 skipped)[/dim]")
+            model_results.append(_hydrate_cached_result(task, cached_records[cache_key]))
             continue
+
+        if runner is None:
+            runner = ModelRunner(backend, model_info.id, bench_config)
+            if backend.config.get("auto_load", False) and not no_autoload:
+                runner.ensure_model_loaded()
 
         scoring_type = task.get("scoring", {}).get("type")
         if scoring_type == "pass_at_k":
             k = task["scoring"].get("k", bench_config.get("runs_per_task", 3))
-            raws = runner.run_task_k(task, k)
+            n = task["scoring"].get(
+                "n",
+                task["scoring"].get("samples", bench_config.get("runs_per_task", k)),
+            )
+            n = max(int(k), int(n))
+            raws = runner.run_task_k(task, n)
             scored = score_pass_at_k(
                 task, raws,
                 allow_code_exec=allow_code_exec,
@@ -87,6 +153,24 @@ def _run_model(
                 judge_client=judge_client,
                 judge_model=judge_model,
             )
+            # When runs_per_task > 1, score every individual run and record variance.
+            all_runs = raw.pop("_all_runs", None)
+            if all_runs and len(all_runs) > 1:
+                per_run_scores = []
+                for r in all_runs:
+                    if not r.get("error"):
+                        s = score_response(
+                            task, r,
+                            allow_code_exec=allow_code_exec,
+                            judge_client=judge_client,
+                            judge_model=judge_model,
+                        )
+                        per_run_scores.append(s["score"])
+                if per_run_scores:
+                    scored["score"] = statistics.mean(per_run_scores)
+                    scored["score_std"] = (
+                        statistics.stdev(per_run_scores) if len(per_run_scores) > 1 else 0.0
+                    )
 
         scored["model_id"] = model_info.id
         model_results.append(scored)
@@ -192,7 +276,8 @@ def main():
         epilog=__doc__,
     )
     parser.add_argument("--config",         default="config.yaml",  help="Path to config file")
-    parser.add_argument("--model",          help="Benchmark only this model ID (matched against any backend)")
+    parser.add_argument("--model",          nargs="+", metavar="MODEL",
+                        help="Benchmark only these model ID(s) (matched against any backend; use multiple for arena)")
     parser.add_argument("--backend",        help="Restrict to one backend type (lm_studio | ollama | llamacpp)")
     parser.add_argument("--category",       choices=categories,      help="Run only this task category")
     parser.add_argument("--task",           help="Run only a single task by ID")
@@ -202,6 +287,12 @@ def main():
     parser.add_argument("--list-models",    action="store_true",     help="Alias for --discover")
     parser.add_argument("--dry-run",        action="store_true",     help="Validate task files and check backend connectivity, no inference")
     parser.add_argument("--allow-code-exec",action="store_true",     help="Enable code_exec scoring (runs model-generated Python locally — review tasks first)")
+    parser.add_argument("--html-report",    action="store_true",     help="Generate an interactive HTML visual report of the results")
+    parser.add_argument("--arena",          action="store_true",     help="Arena mode: pairwise ELO competition between all discovered models")
+    parser.add_argument("--compare",        nargs=2, metavar=("BASELINE", "CANDIDATE"),
+                        help="Compare two saved JSON/JSONL result files and exit")
+    parser.add_argument("--compare-top",    type=int, default=10, metavar="N",
+                        help="Number of largest task deltas to show with --compare")
     parser.add_argument("--ci-threshold",   type=float, default=None,metavar="RATIO",
                         help="Exit with code 1 if overall score ratio is below this (e.g. 0.8 = 80%%)")
     parser.add_argument("--limit",          type=int,   default=None, metavar="N",
@@ -209,6 +300,10 @@ def main():
     parser.add_argument("--resume",         action="store_true",
                         help="Skip (model, task) pairs already in the most recent results JSONL (continue interrupted run)")
     args = parser.parse_args()
+
+    if args.compare:
+        compare_result_files(args.compare[0], args.compare[1], top_n=args.compare_top)
+        return
 
     config = _load_config(args.config)
     bench_config = config.get("benchmark", {})
@@ -226,7 +321,7 @@ def main():
     if args.dry_run:
         console.print("\n[bold]Dry-run mode[/bold] — validating task files…")
         try:
-            tasks_all = load_tasks(validate=True)
+            tasks_all = load_tasks(validate=True, expand_datasets=False)
             cats = sorted(set(t["category"] for t in tasks_all))
             console.print(f"  [green]✓[/green]  {len(tasks_all)} tasks loaded across {len(cats)} categories: {cats}")
         except (ValueError, FileNotFoundError) as e:
@@ -238,9 +333,10 @@ def main():
 
     # Filter to --model if specified
     if args.model:
-        all_pairs = [(m, b) for m, b in all_pairs if args.model in m.id]
+        all_pairs = [(m, b) for m, b in all_pairs
+                     if any(pat in m.id for pat in args.model)]
         if not all_pairs:
-            console.print(f"[red]Model '{args.model}' not found in any enabled backend.[/red]")
+            console.print(f"[red]Model(s) {args.model} not found in any enabled backend.[/red]")
             console.print("[dim]Run --discover to see available models.[/dim]")
             sys.exit(1)
 
@@ -256,6 +352,12 @@ def main():
         judge_model = judge_cfg.get("model") or all_pairs[0][0].id
         judge_client = all_pairs[0][1].get_openai_client()
         console.print(f"[dim]LLM judge enabled — model: {judge_model}[/dim]")
+        
+    # ── security warning ──────────────────────────────────────────────────────
+    if args.allow_code_exec:
+        console.print("\n[bold red]⚠️ WARNING: --allow-code-exec is enabled. Untrusted LLM code will be executed locally.[/bold red]")
+        if sys.platform == "win32":
+            console.print("[bold red]⚠️ SECURITY: You are on Windows. Memory limits (RLIMIT_AS) are NOT supported. A malicious model could consume all system RAM.[/bold red]\n")
     # ── tasks ─────────────────────────────────────────────────────────────
     tasks = load_tasks(args.category)
     if args.task:
@@ -286,6 +388,25 @@ def main():
         f"{len(all_pairs)} model(s)[/dim]\n"
     )
 
+    # ── Arena mode ─────────────────────────────────────────────────────────
+    if args.arena:
+        if not judge_client:
+            # Auto-enable judge for arena mode using first discovered model
+            judge_model = all_pairs[0][0].id
+            judge_client = all_pairs[0][1].get_openai_client()
+            console.print(f"[dim]Arena mode: auto-enabled judge — model: {judge_model}[/dim]")
+        players = run_arena(
+            model_pairs=all_pairs,
+            tasks=tasks,
+            bench_config=bench_config,
+            judge_client=judge_client,
+            judge_model=judge_model,
+            no_autoload=args.no_autoload,
+        )
+        print_arena_leaderboard(players)
+        save_arena_results(players, args.output)
+        return
+
     all_results: dict = {}
 
     # Incremental JSONL for crash safety (one line per task, written immediately)
@@ -293,7 +414,7 @@ def main():
     _out_dir = Path(args.output)
     _out_dir.mkdir(exist_ok=True)
     _resume = bench_config.get("resume", False) or args.resume
-    _cached_keys: set = set()
+    _cached_records: dict = {}
     if _resume:
         _existing = sorted(_out_dir.glob("results_*.jsonl"))
         if _existing:
@@ -302,10 +423,12 @@ def main():
                 for _line in _fh:
                     try:
                         _rec = json.loads(_line)
-                        _cached_keys.add((_rec.get("model_id", _rec.get("model", "")), _rec["task_id"]))
+                        _key = _record_cache_key(_rec)
+                        if _key[0] and _key[1] and _key[3]:
+                            _cached_records[_key] = _rec
                     except (ValueError, KeyError):
                         pass
-            console.print(f"[dim]Resuming from {_jsonl_path.name} — {len(_cached_keys)} cached result(s)[/dim]")
+            console.print(f"[dim]Resuming from {_jsonl_path.name} — {len(_cached_records)} compatible cached result(s)[/dim]")
         else:
             _jsonl_path = _out_dir / f"results_{_ts}.jsonl"
             console.print("[dim]--resume: no existing JSONL found — starting fresh[/dim]")
@@ -322,7 +445,7 @@ def main():
             backend=backend,
             tasks=tasks,
             bench_config=bench_config,
-            cached_keys=_cached_keys,
+            cached_records=_cached_records,
             jsonl_path=_jsonl_path,
             allow_code_exec=args.allow_code_exec,
             no_autoload=args.no_autoload,
@@ -334,14 +457,17 @@ def main():
         passed   = sum(1 for r in model_results if r["score"] >= 1.0)
         tps_vals = [r["tps"] for r in model_results if r.get("tps")]
         avg_tps  = sum(tps_vals) / len(tps_vals) if tps_vals else 0
+        score_pct = passed / len(model_results) * 100 if model_results else 0
         console.print(
             f"\n  [bold]Score: {passed}/{len(model_results)} "
-            f"({passed / len(model_results) * 100:.0f}%)  "
+            f"({score_pct:.0f}%)  "
             f"Avg TPS: {avg_tps:.1f}[/bold]\n"
         )
 
     print_report(all_results)
     save_results(all_results, args.output)
+    if args.html_report:
+        save_html_report(all_results, args.output)
 
     # ── CI threshold check ────────────────────────────────────────────────
     if args.ci_threshold is not None:

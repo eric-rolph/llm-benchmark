@@ -60,6 +60,35 @@ def test_task_ids_are_unique():
     assert len(ids) == len(set(ids)), f"Duplicate task IDs: {[x for x in ids if ids.count(x) > 1]}"
 
 
+def test_load_tasks_rejects_duplicate_ids(tmp_path, monkeypatch):
+    (tmp_path / "a.yaml").write_text(
+        """
+- id: duplicate_task
+  prompt: "Question A?"
+  category: math
+  scoring:
+    type: exact
+    value: A
+""".strip(),
+        encoding="utf-8",
+    )
+    (tmp_path / "b.yaml").write_text(
+        """
+- id: duplicate_task
+  prompt: "Question B?"
+  category: knowledge
+  scoring:
+    type: exact
+    value: B
+""".strip(),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr("benchmark.loader.TASKS_DIR", tmp_path)
+
+    with pytest.raises(ValueError, match="Duplicate task id 'duplicate_task'"):
+        load_tasks(category_filter="math", validate=True)
+
+
 # ── validation ─────────────────────────────────────────────────────────────────
 
 def test_validate_task_raises_on_missing_id():
@@ -93,3 +122,58 @@ def test_bare_list_yaml_tasks_have_no_version():
     # knowledge.yaml, writing.yaml, etc. are bare lists — their tasks should not have _version
     bare_tasks = [t for t in tasks if t.get("_version") is None]
     assert len(bare_tasks) > 0, "Expected some tasks without a _version (from bare-list YAML files)"
+
+
+# ── dataset task validation ───────────────────────────────────────────────────
+
+def test_validate_dataset_task_passes():
+    """Dataset tasks use 'dataset' + 'template' instead of 'prompt'."""
+    _validate_task(
+        {"id": "ds_test", "category": "knowledge", "dataset": {"name": "test"}, "template": "{{ q }}", "scoring": {"type": "exact"}},
+        "test.yaml", 0
+    )
+
+
+def test_validate_dataset_task_missing_template():
+    """Dataset tasks without a 'template' field should fail validation."""
+    with pytest.raises(ValueError, match="missing required fields"):
+        _validate_task(
+            {"id": "ds_test", "category": "knowledge", "dataset": {"name": "test"}, "scoring": {"type": "exact"}},
+            "test.yaml", 0
+        )
+
+
+def test_validate_dataset_task_does_not_require_prompt():
+    """Dataset tasks should NOT require 'prompt' — they use 'template' instead."""
+    # This should NOT raise even though 'prompt' is missing
+    _validate_task(
+        {"id": "ds_test", "category": "knowledge", "dataset": {"name": "test"}, "template": "{{ q }}", "scoring": {"type": "exact"}},
+        "test.yaml", 0
+    )
+
+
+def test_load_tasks_can_validate_dataset_tasks_without_expanding(tmp_path, monkeypatch):
+    (tmp_path / "dataset.yaml").write_text(
+        """
+- id: ds_test
+  category: knowledge
+  dataset:
+    name: example/dataset
+  template: "{{ question }}"
+  scoring:
+    type: exact
+    answer_field: answer
+""".strip(),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr("benchmark.loader.TASKS_DIR", tmp_path)
+
+    def fail_expand(task):
+        raise AssertionError("dry-run validation should not expand datasets")
+
+    monkeypatch.setattr("benchmark.loader._expand_dataset_tasks", fail_expand)
+
+    tasks = load_tasks(validate=True, expand_datasets=False)
+
+    assert len(tasks) == 1
+    assert tasks[0]["id"] == "ds_test"
