@@ -18,14 +18,14 @@ from __future__ import annotations
 
 import random
 from dataclasses import dataclass, field
-from rich.console import Console
 from rich.table import Table
 from rich import box
 
+from benchmark.console import make_console
 from benchmark.runner import ModelRunner
 from benchmark.utils import strip_thinking
 
-console = Console()
+console = make_console()
 
 # ── ELO engine ───────────────────────────────────────────────────────────────
 

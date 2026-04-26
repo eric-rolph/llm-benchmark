@@ -62,6 +62,7 @@ def load_tasks(category_filter: str | None = None, validate: bool = True) -> lis
         raise FileNotFoundError(f"Tasks directory not found: {TASKS_DIR}")
 
     tasks: list[dict] = []
+    seen_ids: dict[str, str] = {}
     for yaml_file in sorted(TASKS_DIR.glob("*.yaml")):
         data = yaml.safe_load(yaml_file.read_text(encoding="utf-8"))
         # Support both a bare YAML list and a dict with a 'tasks' key
@@ -82,6 +83,14 @@ def load_tasks(category_filter: str | None = None, validate: bool = True) -> lis
             expanded = _expand_dataset_tasks(task)
 
             for t in expanded:
+                if validate:
+                    task_id = t.get("id")
+                    if task_id in seen_ids:
+                        raise ValueError(
+                            f"Duplicate task id '{task_id}' in '{yaml_file.name}' "
+                            f"(already defined in '{seen_ids[task_id]}')."
+                        )
+                    seen_ids[task_id] = yaml_file.name
                 if category_filter is None or t.get("category") == category_filter:
                     t = dict(t)
                     if file_version is not None:

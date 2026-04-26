@@ -7,12 +7,12 @@ from datetime import datetime
 from pathlib import Path
 
 from rich import box
-from rich.console import Console
 from rich.table import Table
 
+from benchmark.console import make_console
 from benchmark.utils import _avg
 
-console = Console()
+console = make_console()
 
 CATEGORY_WEIGHTS: dict = {
     "coding":                1.5,

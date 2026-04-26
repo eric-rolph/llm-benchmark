@@ -13,10 +13,12 @@ import time
 import requests
 import subprocess
 import threading
-from rich.console import Console
 
 from benchmark.backends.base import Backend
+from benchmark.console import make_console
 from benchmark.utils import strip_thinking, _avg
+
+console = make_console()
 
 
 class TelemetryTracker:
@@ -113,7 +115,7 @@ class ModelRunner:
                         time.sleep(1) # wait before retry
             
         if config:
-            Console().print(f"  [dim]↳ Auto-loaded generation params from HF for {model_id} (e.g. temp={config.get('temperature', 'N/A')}, rep_penalty={config.get('repetition_penalty', 'N/A')})[/dim]")
+            console.print(f"  [dim]↳ Auto-loaded generation params from HF for {model_id} (e.g. temp={config.get('temperature', 'N/A')}, rep_penalty={config.get('repetition_penalty', 'N/A')})[/dim]")
             
         return config
 

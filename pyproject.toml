@@ -48,5 +48,9 @@ Issues   = "https://github.com/eric-rolph/llm-benchmark/issues"
 packages = ["benchmark"]
 artifacts = ["tasks/*.yaml"]
 
+[tool.hatch.build.targets.wheel.force-include]
+"run.py" = "run.py"
+"tasks" = "tasks"
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]

@@ -1,8 +1,8 @@
 # LLM Benchmark Suite
 
 ![Python](https://img.shields.io/badge/python-3.11%2B-blue)
-![Tasks](https://img.shields.io/badge/tasks-78-green)
-![Backends](https://img.shields.io/badge/backends-3-orange)
+![Tasks](https://img.shields.io/badge/tasks-87-green)
+![Backends](https://img.shields.io/badge/backends-9-orange)
 ![License](https://img.shields.io/badge/license-MIT-lightgrey)
 
 Automated, objective benchmarking for **local LLMs** — no cloud, no API keys, no opinion.  
@@ -27,7 +27,7 @@ Results are reproducible: temperature=0, tolerance-based numeric scoring, strict
 | **Auto-discovery** | Probes enabled backends, enumerates all available models |
 | **HF Auto-Config** | Automatically fetches optimal `generation_config.json` parameters directly from Hugging Face for tested models |
 | **Thinking model support** | Qwen3, DeepSeek-R1 — reasoning tokens captured, clean text scored |
-| **78 tasks, 7 categories** | Math, reasoning, coding, knowledge, writing, summarization, instruction-following |
+| **87 tasks, 7 categories** | Math, reasoning, coding, knowledge, writing, summarization, instruction-following, including vision-language tasks folded into reasoning/writing |
 | **14 scoring types** | numeric, exact, contains, fuzzy_match, regex, json_keys, line_count, code_exec, word_count, contains_n, not_contains, ends_with, pass_at_k, llm_judge |
 | **Few-shot examples** | Add `few_shot:` to any task YAML to inject conversation history before the prompt |
 | **pass@k coding** | `scoring.type: pass_at_k` runs a task k times; uses the unbiased Chen et al. (2021) estimator |
@@ -112,7 +112,7 @@ llm-bench --discover
 ## All Commands
 
 ```
-python run.py                           # auto-discover + run all 78 tasks
+python run.py                           # auto-discover + run all 87 tasks
 python run.py --discover                # probe backends, list models, exit
 python run.py --dry-run                 # validate task files + check backends, no inference
 python run.py --model "qwen3:8b"        # single model (all categories)
@@ -136,11 +136,11 @@ python run.py --output my_results       # custom output directory
 | `math` | 10 | `numeric` — extract first number, tolerance-based comparison |
 | `knowledge` | 15 | `exact` / `contains` / `numeric` |
 | `coding` | 12 | `code_exec` / `pass_at_k` — runs generated Python, looks for `PASS` in stdout |
-| `reasoning` | 8 | `contains` / `exact` |
-| `writing` | 10 | `line_count` / `regex` |
-| `summarization` | 8 | `contains` / `line_count` / `regex` |
+| `reasoning` | 12 | `contains` / `exact` / `fuzzy_match` / `word_count` / `llm_judge` |
+| `writing` | 13 | `line_count` / `regex` / `word_count` |
+| `summarization` | 10 | `contains` / `line_count` / `regex` |
 | `instruction_following` | 15 | `exact` / `contains` / `word_count` / `contains_n` / `not_contains` / `ends_with` |
-| **Total** | **78** | |
+| **Total** | **87** | |
 
 ---
 

@@ -60,6 +60,35 @@ def test_task_ids_are_unique():
     assert len(ids) == len(set(ids)), f"Duplicate task IDs: {[x for x in ids if ids.count(x) > 1]}"
 
 
+def test_load_tasks_rejects_duplicate_ids(tmp_path, monkeypatch):
+    (tmp_path / "a.yaml").write_text(
+        """
+- id: duplicate_task
+  prompt: "Question A?"
+  category: math
+  scoring:
+    type: exact
+    value: A
+""".strip(),
+        encoding="utf-8",
+    )
+    (tmp_path / "b.yaml").write_text(
+        """
+- id: duplicate_task
+  prompt: "Question B?"
+  category: knowledge
+  scoring:
+    type: exact
+    value: B
+""".strip(),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr("benchmark.loader.TASKS_DIR", tmp_path)
+
+    with pytest.raises(ValueError, match="Duplicate task id 'duplicate_task'"):
+        load_tasks(category_filter="math", validate=True)
+
+
 # ── validation ─────────────────────────────────────────────────────────────────
 
 def test_validate_task_raises_on_missing_id():

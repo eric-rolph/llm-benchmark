@@ -44,6 +44,8 @@ tasks:
 | `temperature` | float   | from config | Override per-task temperature |
 | `max_tokens`  | int     | from config | Override per-task token limit |
 | `thinking`    | boolean | false   | Request thinking/reasoning mode (Ollama only) |
+| `image_url`   | string/list | none | Remote image URL(s) for vision-language tasks |
+| `image_path`  | string/list | none | Local image path(s) for vision-language tasks |
 
 ---
 
@@ -124,8 +126,14 @@ The model is expected to return a code block containing a function named (e.g.) 
 The `test_code` is appended to the extracted code and the full script is executed.
 
 ### `llm_judge`
-Placeholder for LLM-as-judge scoring. Requires `--judge` flag (not yet implemented).
-Currently returns `None` score marked for manual review.
+Scores subjective tasks with a configured judge model. Enable `judge.enabled: true`
+in `config.yaml`; the judge response must include a `SCORE: N` line.
+
+```yaml
+scoring:
+  type: llm_judge
+  criteria: "Does the response answer the prompt accurately and concisely?"
+```
 
 ---
 

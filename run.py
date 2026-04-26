@@ -39,19 +39,19 @@ import sys
 from pathlib import Path
 
 import yaml
-from rich.console import Console
 from rich.table import Table
 from rich import box
 
 from benchmark.backends import create_backend, discover_all_models
 from benchmark.backends.base import ModelInfo
+from benchmark.console import make_console
 from benchmark.loader import load_tasks
 from benchmark.reporter import print_report, print_task_result, save_results, append_jsonl, save_html_report
 from benchmark.runner import ModelRunner
 from benchmark.scorer import score_response, score_pass_at_k
 from benchmark.arena import run_arena, print_arena_leaderboard
 
-console = Console()
+console = make_console()
 
 TASK_DIR = Path(__file__).parent / "tasks"
 
