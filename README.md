@@ -72,6 +72,7 @@ Results are built for auditability: temperature=0 by default, tolerance-based nu
 cd C:\path\to\llm-benchmark
 .\setup.ps1
 .\.venv\Scripts\Activate.ps1
+llm-bench --dry-run
 ```
 
 **macOS / Linux:**
@@ -79,13 +80,16 @@ cd C:\path\to\llm-benchmark
 cd ~/path/to/llm-benchmark
 chmod +x setup.sh && ./setup.sh
 source .venv/bin/activate
+llm-bench --dry-run
 ```
 
-Or install as a package (exposes `llm-bench` command):
+Manual editable install, if you created the virtual environment yourself:
 ```bash
 pip install -e .
 llm-bench --discover
 ```
+
+On PowerShell, `run.py` by itself will not execute from the current directory. Prefer the installed `llm-bench` command. If you want to run the script file directly, use `python .\run.py --dry-run`.
 
 ---
 
@@ -115,12 +119,12 @@ llm-bench --discover
 
 3. **Discover available models:**
    ```
-   python run.py --discover
+   llm-bench --discover
    ```
 
 4. **Run everything:**
    ```
-   python run.py
+   llm-bench
    ```
 
 ---
@@ -128,23 +132,39 @@ llm-bench --discover
 ## All Commands
 
 ```
-python run.py                           # auto-discover + run all 87 tasks
-python run.py --discover                # probe backends, list models, exit
-python run.py --dry-run                 # validate task files + check backends, no inference
-python run.py --model "qwen3:8b"        # single model (all categories)
-python run.py --backend ollama          # restrict to one backend type
-python run.py --category math           # single category
-python run.py --task capital_france     # single task by ID
-python run.py --limit 2                 # first 2 tasks per category (quick smoke test)
-python run.py --resume                  # skip tasks already in the most recent results JSONL
-python run.py --compare old.jsonl new.jsonl # compare two saved result files
-python run.py --compare old.json new.json --compare-top 20 # show more task deltas
-python run.py --no-autoload             # skip LM Studio model-load attempt
-python run.py --allow-code-exec         # enable code_exec scoring (runs generated Python locally)
-python run.py --ci-threshold 0.80       # exit 1 if overall score < 80%  (CI integration)
-python run.py --html-report             # write an interactive HTML report
-python run.py --arena                   # pairwise ELO arena using an LLM judge
-python run.py --output my_results       # custom output directory
+llm-bench                           # auto-discover + run all 87 tasks
+llm-bench --discover                # probe backends, list models, exit
+llm-bench --dry-run                 # validate task files + check backends, no inference
+llm-bench --model "qwen3:8b"        # single model (all categories)
+llm-bench --backend ollama          # restrict to one backend type
+llm-bench --category math           # single category
+llm-bench --task capital_france     # single task by ID
+llm-bench --limit 2                 # first 2 tasks per category (quick smoke test)
+llm-bench --resume                  # skip tasks already in the most recent results JSONL
+llm-bench --compare old.jsonl new.jsonl # compare two saved result files
+llm-bench --compare old.json new.json --compare-top 20 # show more task deltas
+llm-bench --no-autoload             # skip LM Studio model-load attempt
+llm-bench --allow-code-exec         # enable code_exec scoring (runs generated Python locally)
+llm-bench --ci-threshold 0.80       # exit 1 if overall score < 80%  (CI integration)
+llm-bench --html-report             # write an interactive HTML report
+llm-bench --arena                   # pairwise ELO arena using an LLM judge
+llm-bench --output my_results       # custom output directory
+```
+
+Script fallback from the repo root: replace `llm-bench` with `python .\run.py` on Windows PowerShell or `python run.py` on macOS/Linux.
+
+### Windows troubleshooting
+
+If PowerShell says `run.py` exists but is not recognized, that is normal PowerShell command precedence. Use `llm-bench --dry-run` or `python .\run.py --dry-run`.
+
+If `python .\run.py --dry-run` fails with `ModuleNotFoundError: No module named 'yaml'`, your active `python` is not the repo environment or the package was not installed. From the repo root:
+
+```powershell
+deactivate  # ignore if no environment is active
+.\.venv\Scripts\Activate.ps1
+python -c "import sys; print(sys.executable)"
+python -m pip install -e .
+llm-bench --dry-run
 ```
 
 ---
@@ -214,7 +234,7 @@ Example console output:
 Compare two completed or in-progress runs without starting a backend:
 
 ```bash
-python run.py --compare results/results_20250118_143022.jsonl results/results_20250119_091500.jsonl
+llm-bench --compare results/results_20250118_143022.jsonl results/results_20250119_091500.jsonl
 ```
 
 `--compare` accepts the structured JSON files and the incremental JSONL files. It reports per-model score movement, composite-score movement, unmatched task counts, and the largest task-level deltas. Use `--compare-top N` to change how many task changes are shown.
@@ -357,7 +377,7 @@ The judge uses a CoT-then-score protocol: it reasons step by step and then outpu
 Resume an interrupted benchmark without re-running completed tasks:
 
 ```bash
-python run.py --resume
+llm-bench --resume
 ```
 
 Or enable it permanently in `config.yaml`:
