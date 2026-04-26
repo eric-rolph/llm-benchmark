@@ -7,13 +7,13 @@ PYTHON=${PYTHON:-python3}
 
 echo "=== LLM Benchmark Suite — Setup ==="
 
-# Check Python version (3.10+)
+# Check Python version (3.11+)
 PY_VER=$("$PYTHON" -c "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}')")
 PY_MAJOR=$("$PYTHON" -c "import sys; print(sys.version_info.major)")
 PY_MINOR=$("$PYTHON" -c "import sys; print(sys.version_info.minor)")
 
-if [ "$PY_MAJOR" -lt 3 ] || { [ "$PY_MAJOR" -eq 3 ] && [ "$PY_MINOR" -lt 10 ]; }; then
-  echo "ERROR: Python 3.10+ required (found $PY_VER)"
+if [ "$PY_MAJOR" -lt 3 ] || { [ "$PY_MAJOR" -eq 3 ] && [ "$PY_MINOR" -lt 11 ]; }; then
+  echo "ERROR: Python 3.11+ required (found $PY_VER)"
   exit 1
 fi
 echo "Python $PY_VER — OK"
@@ -29,13 +29,14 @@ fi
 # Activate and install
 echo "Installing dependencies..."
 source .venv/bin/activate
-pip install --quiet --upgrade pip
-pip install --quiet -r requirements.txt
+python -m pip install --quiet --upgrade pip
+python -m pip install --quiet -e .
 
 echo ""
 echo "=== Setup complete ==="
 echo ""
 echo "  Activate:  source .venv/bin/activate"
-echo "  Discover:  python run.py --discover"
-echo "  Run all:   python run.py"
+echo "  Dry-run:   llm-bench --dry-run"
+echo "  Discover:  llm-bench --discover"
+echo "  Run all:   llm-bench"
 echo ""
