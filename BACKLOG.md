@@ -8,46 +8,31 @@ the OpenAI SWE-bench Verified post-mortem.
 
 ## Tier 1 — Bug fixes (wrong results today)
 
-### 1.1 `headline_from_article` regex is too narrow
-**Problem:** Correct headlines from nemotron and gemma-4-31b score 0 because
-the multi-part regex `(?i)(battery|charg).{0,60}(stanford|smartphone|fast|rapid|new|speed)`
-requires both halves to appear within 60 characters. Models write valid
-headlines that don't match the pattern — this is the "test too narrowly
-defined" failure mode identified in the SWE-bench post-mortem.  
-**Fix:** Replace with two independent `contains` checks (battery/charg AND
-stanford/fast/new) joined in a `multi_contains` scorer, or widen the regex
-window and drop the second anchor.  
-**File:** `tasks/summarization.yaml`
+### ✅ 1.1 `headline_from_article` regex is too narrow
+**Fixed:** Replaced narrow ordered regex with `multi_contains` scorer using two
+groups — `["battery","charg"]` AND `["stanford","smartphone","fast","rapid","new","speed","minute"]`.
+Required adding `_score_multi_contains` to `benchmark/scorer.py`.  
+**Files:** `tasks/summarization.yaml`, `benchmark/scorer.py`
 
-### 1.2 `vision_describe_dog` keyword is too fragile
-**Problem:** Some models say "canine" or describe the animal without the
-literal word "dog", scoring 0 despite a correct response.  
-**Fix:** Change scorer from `contains: dog` to `fuzzy_match` or a short
-`regex` alternation `(dog|canine|puppy)`.  
+### ✅ 1.2 `vision_describe_dog` keyword is too fragile
+**Fixed:** Changed scorer from `contains: dog` to `regex: (?i)(dog|canine|puppy|pup)`.  
 **File:** `tasks/vision.yaml`
 
-### 1.3 Qwen3 thinking-mode code block extraction fails
-**Problem:** `code_009`–`code_012` report "no Python code block found" on
-both Qwen3 models. Qwen3 in thinking mode wraps its answer differently;
-the code ends up outside a fenced block or inside the thinking stream.  
-**Fix:** Investigate the raw response for these tasks (check JSONL
-`response_preview`). Either improve `_extract_code` to handle the format,
-or add a pre-processing step in the Qwen3/LM Studio backend path to
-normalise the output before scoring.  
-**Files:** `benchmark/scorer.py`, `benchmark/backends/lm_studio.py`
+### ✅ 1.3 Qwen3 thinking-mode code block extraction fails
+**Fixed:** When `response_text` is empty after `strip_thinking` but `reasoning_text`
+is non-empty, fall back to `strip_thinking(reasoning_text)`. Handles models like
+Qwen3 that route all output through `reasoning_content`.  
+**File:** `benchmark/runner.py`
 
 ---
 
 ## Tier 2 — Task quality
 
-### 2.1 Add `contamination_risk` field to LeetCode-style tasks
-**Problem:** Classic tasks (`longest_increasing_subsequence`, `group_anagrams`,
-`max_subarray_sum`, `two_sum`, etc.) are in every training corpus. High scores
-may reflect recall, not reasoning. The SWE-bench post-mortem showed frontier
-models reproducing verbatim solutions from memory.  
-**Fix:** Add `contamination_risk: high` to known textbook problems. The
-reporter can then print a separate "contamination-adjusted score" that
-excludes high-risk tasks, giving a cleaner capability signal.  
+### ✅ 2.1 Add `contamination_risk` field to LeetCode-style tasks
+**Fixed:** Added `contamination_risk: high` to code_001–005, code_007, code_011
+(LIS, group anagrams, max subarray, count islands, two-sum, merge intervals,
+rotate matrix). Reporter now prints an "Excl. memorised" row in the accuracy
+table that filters these out.  
 **Files:** `tasks/coding.yaml`, `benchmark/reporter.py`
 
 ### 2.2 Harder coding tasks to escape saturation
@@ -85,28 +70,19 @@ specificity, executability, constraint adherence).
 
 ## Tier 3 — Infrastructure
 
-### 3.1 `multi_contains` scorer
-**Problem:** Several tasks need "response must contain A AND B" but the only
-options are `contains` (single needle) or `regex` (error-prone for
-non-regex authors). The headline fix in 1.1 needs this.  
-**Fix:** Add `_score_multi_contains` — takes a `values: [...]` list and
-scores 1.0 only when all needles are present (case-insensitive). Register
-as `multi_contains` in the dispatch table.  
-**File:** `benchmark/scorer.py`
+### ✅ 3.1 `multi_contains` scorer
+**Fixed:** Added `_score_multi_contains` to `benchmark/scorer.py`. Supports
+`groups` (OR within group, AND across groups) and `values` (flat AND list).
+Registered in the dispatch table.
 
-### 3.2 Contamination-adjusted score in reporter
-**Depends on:** 2.1  
-**Fix:** In `print_report`, add a "Clean Score" row to the accuracy table
-that excludes tasks with `contamination_risk: high`. Annotate the column
-header so it's clear what's excluded.  
+### ✅ 3.2 Contamination-adjusted score in reporter
+**Fixed:** Added "Excl. memorised" row to the accuracy table that filters out
+tasks with `contamination_risk: high`. Completed together with 2.1.  
 **File:** `benchmark/reporter.py`
 
-### 3.3 Benchmark saturation warning
-**Problem:** When overall scores exceed ~85%, the benchmark differentiates
-poorly between models — the SWE-bench lesson. We have no signal for this.  
-**Fix:** In the summary footer, print a dim warning when the mean score
-across all models exceeds 0.85: "⚠ Scores near ceiling — consider adding
-harder tasks."  
+### ✅ 3.3 Benchmark saturation warning
+**Fixed:** After the difficulty breakdown, prints a dim yellow warning when any
+model exceeds 85% mean score: "⚠ Scores near ceiling — consider adding harder tasks."  
 **File:** `benchmark/reporter.py`
 
 ### 3.4 Judge enablement via CLI flag

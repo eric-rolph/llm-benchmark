@@ -209,6 +209,7 @@ def score_response(task: dict, run_result: dict, allow_code_exec: bool = False,
         "exact":            _score_exact,
         "contains":         _score_contains,
         "contains_n":       _score_contains_n,
+        "multi_contains":   _score_multi_contains,
         "not_contains":     _score_not_contains,
         "ends_with":        _score_ends_with,
         "fuzzy_match":      _score_fuzzy_match,
@@ -477,6 +478,40 @@ def _score_json_schema(response: str, scoring: dict):
 
     n = len(items)
     return 1.0, f"JSON schema valid ({n} item{'s' if n != 1 else ''})"
+
+
+def _score_multi_contains(response: str, scoring: dict):
+    """
+    Require all groups to match (case-insensitive substring).
+
+    Each group is a list of alternatives — the response must contain at least
+    one item from EVERY group (AND across groups, OR within each group).
+    'values' is a convenience shorthand: a flat list where ALL must appear.
+
+    YAML examples:
+      type: multi_contains
+      values: ["battery", "stanford"]
+
+      type: multi_contains
+      groups:
+        - ["battery", "charg"]
+        - ["stanford", "fast", "new", "rapid"]
+    """
+    resp_norm = _normalize(response)
+    groups = scoring.get("groups")
+    if groups is None:
+        values = scoring.get("values", [])
+        groups = [[v] for v in values]
+    if not groups:
+        return 0.0, "multi_contains: no 'groups' or 'values' defined"
+    missing = []
+    for group in groups:
+        needles = [_normalize(str(v)) for v in group]
+        if not any(n in resp_norm for n in needles):
+            missing.append(group)
+    if not missing:
+        return 1.0, f"All {len(groups)} group(s) matched"
+    return 0.0, f"Missing matches for: {missing}"
 
 
 def _score_line_count(response: str, scoring: dict):

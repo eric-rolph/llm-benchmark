@@ -82,8 +82,10 @@
 
     Output only the headline.
   scoring:
-    type: regex
-    pattern: "(?i)(battery|charg).{0,60}(stanford|smartphone|fast|rapid|new|speed)"
+    type: multi_contains
+    groups:
+      - ["battery", "charg"]
+      - ["stanford", "smartphone", "fast", "rapid", "new", "speed", "minute"]
 
 - id: main_point_philosophy
   category: summarization

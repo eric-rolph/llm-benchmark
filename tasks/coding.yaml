@@ -5,6 +5,7 @@ tasks:
   - id: code_001
     category: coding
     difficulty: hard
+    contamination_risk: high
     description: "Longest increasing subsequence — length"
     prompt: |
       Write a Python function called `longest_increasing_subsequence(nums)` that returns
@@ -34,6 +35,7 @@ tasks:
   - id: code_002
     category: coding
     difficulty: medium
+    contamination_risk: high
     description: "Group anagrams"
     prompt: |
       Write a Python function called `group_anagrams(words)` that groups all anagrams
@@ -60,6 +62,7 @@ tasks:
   - id: code_003
     category: coding
     difficulty: medium
+    contamination_risk: high
     description: "Maximum subarray sum (Kadane's algorithm)"
     prompt: |
       Write a Python function called `max_subarray_sum(nums)` that returns the maximum
@@ -88,6 +91,7 @@ tasks:
   - id: code_004
     category: coding
     difficulty: hard
+    contamination_risk: high
     description: "Count islands (DFS/BFS on binary grid)"
     prompt: |
       Write a Python function called `count_islands(grid)` where `grid` is a 2-D list
@@ -113,6 +117,7 @@ tasks:
   - id: code_005
     category: coding
     difficulty: easy
+    contamination_risk: high
     description: "Two-sum returning sorted index pair"
     prompt: |
       Write a Python function called `two_sum(nums, target)` that returns a list
@@ -162,6 +167,7 @@ tasks:
   - id: code_007
     category: coding
     difficulty: medium
+    contamination_risk: high
     description: "Merge overlapping intervals"
     prompt: |
       Write a Python function called `merge_intervals(intervals)` that takes a list of
@@ -264,6 +270,7 @@ tasks:
   - id: code_011
     category: coding
     difficulty: hard
+    contamination_risk: high
     description: "Rotate square matrix 90 degrees clockwise"
     prompt: |
       Write a Python function called `rotate_matrix(matrix)` that rotates a square matrix
