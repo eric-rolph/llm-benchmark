@@ -1,0 +1,199 @@
+metadata:
+  version: 1
+
+tasks:
+  # ── Code debugging ──────────────────────────────────────────────────────────
+  # Model receives intentionally broken Python and must produce a corrected
+  # version.  Scored via code_exec against a hidden test suite.
+
+  - id: debug_001
+    category: agentic
+    difficulty: medium
+    description: "Debug: flatten nested list — silent no-op concatenation"
+    prompt: |
+      The function below should flatten a nested list of integers to any depth,
+      but it has a bug. Find and fix it. Return only the corrected Python code.
+
+      ```python
+      def flatten(lst):
+          result = []
+          for item in lst:
+              if isinstance(item, list):
+                  result + flatten(item)
+              else:
+                  result.append(item)
+          return result
+      ```
+    scoring:
+      type: code_exec
+      test_code: |
+        assert flatten([1, 2, 3]) == [1, 2, 3]
+        assert flatten([1, [2, 3], 4]) == [1, 2, 3, 4]
+        assert flatten([[1, [2]], [3, [4, [5]]]]) == [1, 2, 3, 4, 5]
+        assert flatten([]) == []
+        assert flatten([[[], []]]) == []
+        print("PASS")
+
+  - id: debug_002
+    category: agentic
+    difficulty: medium
+    description: "Debug: Caesar cipher — missing base offset in chr()"
+    prompt: |
+      The function below applies a Caesar cipher shift to alphabetic characters
+      and leaves others unchanged, but it produces garbage output. Fix the bug.
+      Return only the corrected Python code.
+
+      ```python
+      def caesar_cipher(text, shift):
+          result = ""
+          for char in text:
+              if char.isalpha():
+                  base = ord('A') if char.isupper() else ord('a')
+                  result += chr((ord(char) - base + shift) % 26)
+              else:
+                  result += char
+          return result
+      ```
+    scoring:
+      type: code_exec
+      test_code: |
+        assert caesar_cipher("ABC", 3)  == "DEF",    f"got {caesar_cipher('ABC', 3)}"
+        assert caesar_cipher("xyz", 3)  == "abc",    f"got {caesar_cipher('xyz', 3)}"
+        assert caesar_cipher("Hello, World!", 13) == "Uryyb, Jbeyq!", \
+               f"got {caesar_cipher('Hello, World!', 13)}"
+        assert caesar_cipher("abc", 0)  == "abc"
+        assert caesar_cipher("abc", 26) == "abc"
+        assert caesar_cipher("", 5)     == ""
+        print("PASS")
+
+  - id: debug_003
+    category: agentic
+    difficulty: easy
+    description: "Debug: word frequency counter — == instead of = on first occurrence"
+    prompt: |
+      The function below should count how many times each word appears in a string
+      (case-insensitive, stripping common punctuation). New words are never counted
+      because of a bug. Fix it. Return only the corrected Python code.
+
+      ```python
+      def word_frequency(text):
+          counts = {}
+          for word in text.split():
+              word = word.strip(".,!?;:\"'").lower()
+              if not word:
+                  continue
+              if word in counts:
+                  counts[word] += 1
+              else:
+                  counts[word] == 0
+          return counts
+      ```
+    scoring:
+      type: code_exec
+      test_code: |
+        assert word_frequency("hello world hello") == {"hello": 2, "world": 1}, \
+               f"got {word_frequency('hello world hello')}"
+        assert word_frequency("The cat sat. The cat!") == {"the": 2, "cat": 2, "sat": 1}, \
+               f"got {word_frequency('The cat sat. The cat!')}"
+        assert word_frequency("") == {}, f"got {word_frequency('')}"
+        assert word_frequency("one") == {"one": 1}, f"got {word_frequency('one')}"
+        print("PASS")
+
+  # ── Self-critique ───────────────────────────────────────────────────────────
+  # Model must produce an INITIAL solution, critique its own weaknesses, then
+  # deliver an IMPROVED version.  Scored on the IMPROVED (last) code block.
+
+  - id: critique_001
+    category: agentic
+    difficulty: hard
+    description: "Self-critique: palindrome checker — INITIAL → CRITIQUE → IMPROVED"
+    prompt: |
+      Write a Python function called `is_palindrome(s)` that returns True if the
+      string is a palindrome, ignoring non-alphanumeric characters and case
+      (e.g. "A man, a plan, a canal: Panama" → True).
+
+      Structure your entire response as exactly three labeled sections with no
+      other prose outside them:
+
+      INITIAL:
+      (a simple, working implementation in a ```python block)
+
+      CRITIQUE:
+      (at least three specific weaknesses — name time/space complexity, missed
+      edge cases, or design issues precisely; do not be vague)
+
+      IMPROVED:
+      (an enhanced version that addresses your critiques in a ```python block)
+    scoring:
+      type: code_exec
+      extract: last
+      test_code: |
+        assert is_palindrome("racecar") == True
+        assert is_palindrome("A man, a plan, a canal: Panama") == True
+        assert is_palindrome("hello") == False
+        assert is_palindrome("") == True
+        assert is_palindrome("a") == True
+        assert is_palindrome("No 'x' in Nixon") == True
+        assert is_palindrome("Was it a car or a cat I saw?") == True
+        assert is_palindrome("12321") == True
+        assert is_palindrome("12345") == False
+        print("PASS")
+
+  # ── Structured JSON extraction ───────────────────────────────────────────────
+  # Model extracts entities from unstructured prose and returns strict JSON.
+  # Scored via json_schema: validates structure without requiring a judge.
+
+  - id: extract_001
+    category: agentic
+    difficulty: medium
+    description: "Structured extraction: people from prose → JSON array"
+    prompt: |
+      Extract every person mentioned in the text below. Return a JSON array where
+      each element is an object with exactly these keys:
+        "name"  — full name as written (string)
+        "role"  — their title or role, or null if not mentioned
+        "email" — email address, or null if not mentioned
+
+      Return raw JSON only — no markdown fences, no explanation.
+
+      Text:
+      "Please reach out to Sarah Chen (VP of Engineering, sarah.chen@techcorp.com)
+      or Marcus Webb (marcus@techcorp.com) about the Q3 migration. The project is
+      led by Yuki Tanaka, our CTO."
+    scoring:
+      type: json_schema
+      root: array
+      min_items: 3
+      required_keys:
+        - name
+        - role
+        - email
+
+  - id: extract_002
+    category: agentic
+    difficulty: hard
+    description: "Structured extraction: meeting details → JSON object with nested arrays"
+    prompt: |
+      Extract the meeting details from the text below. Return a single JSON object
+      with exactly these keys:
+        "title"        — short meeting title (string)
+        "attendees"    — list of attendee names (array of strings)
+        "action_items" — list of action items as plain strings (array of strings)
+
+      Return raw JSON only — no markdown fences, no explanation.
+
+      Text:
+      "Product review sync on the 15th: Alice (PM), Bob (Dev Lead), and Carol
+      (Design) will attend. Alice needs to prepare the Q2 roadmap slides before
+      the meeting. Bob will set up the staging environment. Carol should finalize
+      the mockups by end of week."
+    scoring:
+      type: json_schema
+      root: object
+      required_keys:
+        - title
+        - attendees
+        - action_items
+      array_keys:
+        - attendees
+        - action_items

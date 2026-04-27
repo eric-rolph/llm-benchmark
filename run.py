@@ -382,6 +382,38 @@ def main():
         tasks = limited
         console.print(f"[dim]--limit {args.limit}: {len(tasks)} tasks (first {args.limit} per category)[/dim]")
 
+    # ── interactive judge setup ───────────────────────────────────────────────
+    # Prompt once when the judge is disabled but the task list contains judge
+    # tasks, and we're running interactively (not piped / CI).
+    if not judge_cfg.get("enabled") and sys.stdin.isatty():
+        _judge_types = {"llm_judge", "rubric_judge"}
+        _judge_tasks = [t for t in tasks if t.get("scoring", {}).get("type") in _judge_types]
+        if _judge_tasks:
+            _examples = ", ".join(t["id"] for t in _judge_tasks[:3])
+            if len(_judge_tasks) > 3:
+                _examples += f" +{len(_judge_tasks) - 3} more"
+            console.print(
+                f"\n[yellow]{len(_judge_tasks)} task(s) need an LLM judge and will be skipped[/yellow] "
+                f"[dim]({_examples})[/dim]"
+            )
+            _ans = console.input("[bold]Enable LLM judge now? [y/N] [/bold]").strip().lower()
+            if _ans == "y":
+                _default = all_pairs[0][0].id
+                _model_input = console.input(f"  Judge model [blank = {_default!r}]: ").strip()
+                judge_model = _model_input or _default
+                _discovered_ids = {m.id for m, _ in all_pairs}
+                if judge_model in _discovered_ids:
+                    judge_client = next(b for m, b in all_pairs if m.id == judge_model).get_openai_client()
+                else:
+                    # External model (e.g. OpenAI, Anthropic-compat) — collect credentials.
+                    _base_url = console.input("  API base URL (e.g. https://api.openai.com/v1): ").strip()
+                    _env_key = os.environ.get("OPENAI_API_KEY", "")
+                    _key_hint = "set via $OPENAI_API_KEY" if _env_key else "required"
+                    _api_key = console.input(f"  API key [{_key_hint}]: ").strip() or _env_key
+                    from openai import OpenAI as _OpenAI
+                    judge_client = _OpenAI(api_key=_api_key or "noop", base_url=_base_url or None)
+                console.print(f"  [green]✓[/green] Judge enabled — model: [bold]{judge_model}[/bold]\n")
+
     cats = sorted(set(t["category"] for t in tasks))
     console.print(
         f"[dim]{len(tasks)} tasks · categories: {cats} · "
