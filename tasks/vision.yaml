@@ -60,4 +60,4 @@ tasks:
     scoring:
       type: word_count
       min: 15
-      max: 120
+      max: 250
