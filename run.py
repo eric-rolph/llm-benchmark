@@ -29,12 +29,15 @@ Quick start:
   python run.py --compare old new        # compare two saved JSON/JSONL result files
   python run.py --limit 5                # smoke-test: first 5 tasks per category
   python run.py --resume                 # skip tasks already in the most recent results JSONL
+  python run.py --judge-model qwen3:8b   # enable LLM judge with a local model (CI-friendly)
+  python run.py --judge-model gpt-4o --judge-base-url https://api.openai.com/v1 --judge-api-key sk-…
 """
 from __future__ import annotations
 
 import argparse
 import datetime
 import json
+import os
 import statistics
 import sys
 from pathlib import Path
@@ -299,6 +302,13 @@ def main():
                         help="Run only the first N tasks per category (smoke test / quick iteration)")
     parser.add_argument("--resume",         action="store_true",
                         help="Skip (model, task) pairs already in the most recent results JSONL (continue interrupted run)")
+    # Judge CLI flags — bypass config.yaml and the interactive TTY prompt
+    parser.add_argument("--judge-model",    default=None, metavar="MODEL",
+                        help="Enable LLM judge with this model (bypasses interactive prompt; use a discovered model ID or an external one with --judge-base-url)")
+    parser.add_argument("--judge-api-key",  default=None, metavar="KEY",
+                        help="API key for an external judge model (falls back to $OPENAI_API_KEY)")
+    parser.add_argument("--judge-base-url", default=None, metavar="URL",
+                        help="API base URL for an external judge model (required when --judge-model is not a discovered local model)")
     args = parser.parse_args()
 
     if args.compare:
@@ -348,7 +358,28 @@ def main():
     judge_cfg = config.get("judge", {})
     judge_client = None
     judge_model: str | None = None
-    if judge_cfg.get("enabled") and all_pairs:
+
+    if args.judge_model:
+        # CLI flag takes precedence over config and the interactive prompt.
+        _discovered_ids = {m.id for m, _ in all_pairs}
+        if args.judge_model in _discovered_ids:
+            judge_model = args.judge_model
+            judge_client = next(b for m, b in all_pairs if m.id == judge_model).get_openai_client()
+        else:
+            # External model: base URL required; key from flag or env.
+            _base_url = args.judge_base_url
+            if not _base_url:
+                console.print(
+                    f"[red]--judge-model {args.judge_model!r} is not a discovered local model. "
+                    "Provide --judge-base-url for an external API endpoint.[/red]"
+                )
+                sys.exit(1)
+            _api_key = args.judge_api_key or os.environ.get("OPENAI_API_KEY", "noop")
+            from openai import OpenAI as _OpenAI
+            judge_client = _OpenAI(api_key=_api_key, base_url=_base_url)
+            judge_model = args.judge_model
+        console.print(f"[dim]LLM judge enabled (--judge-model) — model: {judge_model}[/dim]")
+    elif judge_cfg.get("enabled") and all_pairs:
         judge_model = judge_cfg.get("model") or all_pairs[0][0].id
         judge_client = all_pairs[0][1].get_openai_client()
         console.print(f"[dim]LLM judge enabled — model: {judge_model}[/dim]")
@@ -385,7 +416,7 @@ def main():
     # ── interactive judge setup ───────────────────────────────────────────────
     # Prompt once when the judge is disabled but the task list contains judge
     # tasks, and we're running interactively (not piped / CI).
-    if not judge_cfg.get("enabled") and sys.stdin.isatty():
+    if not judge_cfg.get("enabled") and not args.judge_model and sys.stdin.isatty():
         _judge_types = {"llm_judge", "rubric_judge"}
         _judge_tasks = [t for t in tasks if t.get("scoring", {}).get("type") in _judge_types]
         if _judge_tasks:

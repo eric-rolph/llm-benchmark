@@ -131,3 +131,42 @@
     type: numeric
     value: 9.8
     tolerance: 0.2
+
+# ── Post-training-cutoff tasks (2025) ─────────────────────────────────────────
+# These tasks test events from early 2025 that postdate the training cutoffs
+# of most locally-run models (typically ≤ mid-2024). A score of 0 is expected
+# for models without recent data; it signals knowledge staleness, not poor reasoning.
+
+- id: post_cutoff_president_47
+  category: knowledge
+  difficulty: hard
+  description: "Post-cutoff: 47th US President (January 2025)"
+  prompt: |
+    Who was inaugurated as the 47th President of the United States?
+    Answer with just the person's full name.
+  scoring:
+    type: contains
+    value: "trump"
+
+- id: post_cutoff_deepseek_r1
+  category: knowledge
+  difficulty: hard
+  description: "Post-cutoff: DeepSeek-R1 open-weight reasoning model (January 2025)"
+  prompt: |
+    An open-weight reasoning model called R1 was publicly released in January 2025
+    and demonstrated performance rivalling OpenAI's o1 on math and coding benchmarks.
+    Which company developed and released it? Answer with just the company name.
+  scoring:
+    type: contains
+    value: "deepseek"
+
+- id: post_cutoff_super_bowl_lix
+  category: knowledge
+  difficulty: hard
+  description: "Post-cutoff: Super Bowl LIX winner (February 2025)"
+  prompt: |
+    Which NFL team won Super Bowl LIX, played in February 2025?
+    Answer with just the team name.
+  scoring:
+    type: regex
+    pattern: "(?i)(eagle|philadelphia)"

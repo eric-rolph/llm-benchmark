@@ -35,35 +35,25 @@ rotate matrix). Reporter now prints an "Excl. memorised" row in the accuracy
 table that filters these out.  
 **Files:** `tasks/coding.yaml`, `benchmark/reporter.py`
 
-### 2.2 Harder coding tasks to escape saturation
-**Problem:** Models are scoring 87–91% overall on the first run. The
-SWE-bench post-mortem notes benchmarks near 80% stop measuring capability.
-Novel-combination tasks resist memorisation and better differentiate models.  
-**Candidates:**
-- Thread-safe LRU cache using only stdlib (`threading.Lock` + `OrderedDict`)
-- Recursive descent expression parser (tokenise → parse → evaluate)
-- Consistent hashing ring with virtual nodes
-- `asyncio`-based rate limiter  
-**Scoring:** `code_exec` with a hidden test suite, same as existing coding tasks.  
+### ✅ 2.2 Harder coding tasks to escape saturation
+**Fixed:** Added three novel-combination tasks that resist memorisation:
+- `code_013`: Thread-safe LRU cache (threading.Lock + OrderedDict) — code_exec
+- `code_014`: Recursive descent expression parser — no eval(), proper precedence — code_exec
+- `code_015`: Consistent hashing ring with virtual nodes (hashlib, add/remove/get) — code_exec  
+`asyncio`-based rate limiter deferred (timing-dependent tests are flaky in code_exec).  
 **File:** `tasks/coding.yaml`
 
-### 2.3 Post-training-cutoff knowledge tasks
-**Problem:** All current knowledge tasks test facts that have been in training
-data for years (capital of France, Carbon-14 half-life, etc.). There is no
-signal for whether a model is reasoning vs. reciting.  
-**Fix:** Add 3–5 knowledge tasks about events from 2025–2026 that postdate
-most training cutoffs. Use `contains` or `numeric` scoring on verifiable
-facts (election results, sports records, scientific announcements, etc.).  
+### ✅ 2.3 Post-training-cutoff knowledge tasks
+**Fixed:** Added 3 tasks for January–February 2025 events:
+- `post_cutoff_president_47`: 47th US President — Donald Trump (January 2025)
+- `post_cutoff_deepseek_r1`: Company that released DeepSeek-R1 in January 2025
+- `post_cutoff_super_bowl_lix`: Super Bowl LIX winner — Philadelphia Eagles (February 2025)  
 **File:** `tasks/knowledge.yaml`
 
-### 2.4 Multi-step planning agentic task
-**Problem:** Identified in qwopus36-eval as a meaningful capability signal;
-not yet in our suite. Tests whether a model can decompose a goal into a
-numbered, executable plan with specific tool calls and constraints.  
-**Fix:** Add `plan_001`: "Plan a Python CLI tool that scrapes a URL, stores
-results in SQLite, and exposes a `--query` flag — in ≤12 numbered steps
-with exact shell commands." Score via `rubric_judge` (completeness,
-specificity, executability, constraint adherence).  
+### ✅ 2.4 Multi-step planning agentic task
+**Fixed:** Added `plan_001` — plan a Python CLI scraper → SQLite → --query in ≤12 steps,
+scored via `rubric_judge` on step count, concreteness, stdlib constraint, db naming, and
+case-insensitive --query implementation.  
 **File:** `tasks/agentic.yaml`
 
 ---
@@ -85,15 +75,13 @@ tasks with `contamination_risk: high`. Completed together with 2.1.
 model exceeds 85% mean score: "⚠ Scores near ceiling — consider adding harder tasks."  
 **File:** `benchmark/reporter.py`
 
-### 3.4 Judge enablement via CLI flag
-**Problem:** Currently the only way to enable the LLM judge is interactively
-at startup (TTY only) or via `config.yaml`. CI pipelines and scripted runs
-that want judge scoring have no clean path.  
-**Fix:** Add `--judge-model MODEL` CLI flag that sets `judge_client` and
-`judge_model` at parse time, bypassing the interactive prompt. If the model
-ID is not in discovered backends, require `--judge-api-key` and
-`--judge-base-url` flags.  
-**Files:** `run.py`
+### ✅ 3.4 Judge enablement via CLI flag
+**Fixed:** Added `--judge-model MODEL`, `--judge-api-key KEY`, and
+`--judge-base-url URL` flags to `run.py`. Local discovered models are wired
+up automatically; external models use the URL + key pair. The interactive TTY
+prompt is skipped when `--judge-model` is supplied. Added `import os` (was
+missing — the interactive path already used `os.environ`).  
+**File:** `run.py`
 
 ---
 

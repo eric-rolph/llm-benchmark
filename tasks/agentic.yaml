@@ -329,3 +329,46 @@ tasks:
                     f"ValueError must mention JSON, got: {e}"
 
         print("PASS")
+
+  # ── Multi-step planning ────────────────────────────────────────────────────
+  # Tests whether a model can decompose a goal into a numbered, executable plan
+  # with specific tool calls and constraints. Scored by rubric_judge on
+  # completeness, specificity, executability, and constraint adherence.
+
+  - id: plan_001
+    category: agentic
+    difficulty: hard
+    description: "Multi-step planning: Python CLI scraper → SQLite → --query flag"
+    prompt: |
+      Plan a Python CLI tool that:
+        1. Accepts a URL as a command-line argument
+        2. Scrapes all hyperlinks (<a href="…">) from that page using only
+           the Python standard library (urllib + html.parser)
+        3. Stores the collected links in a local SQLite database
+        4. Exposes a --query TERM flag that searches stored links for TERM
+
+      Write a numbered plan of ≤12 steps. Each step must include:
+        • The exact shell command or Python snippet to execute (no pseudocode)
+        • What it produces or verifies
+
+      Constraints (must be respected in the plan):
+        • Use only the Python standard library — no pip installs
+        • The SQLite database file must be named links.db
+        • The --query flag must support partial, case-insensitive matching
+
+      Output only the numbered plan, nothing else.
+    scoring:
+      type: rubric_judge
+      criteria:
+        - criterion: "The plan has ≤12 numbered steps (count them)"
+          weight: 1.0
+        - criterion: "Steps include exact shell commands or concrete Python code snippets — not vague pseudocode like 'write a function to …'"
+          weight: 3.0
+        - criterion: "URL scraping is implemented with urllib and html.parser (both named explicitly)"
+          weight: 2.0
+        - criterion: "SQLite storage is addressed and the database is named links.db"
+          weight: 2.0
+        - criterion: "The --query flag with partial, case-insensitive matching is implemented"
+          weight: 2.0
+        - criterion: "The plan is logically ordered: setup → scrape → store → query; each step follows from the previous"
+          weight: 2.0
