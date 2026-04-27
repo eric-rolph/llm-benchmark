@@ -197,3 +197,135 @@ tasks:
       array_keys:
         - attendees
         - action_items
+
+  # ── Test quality ─────────────────────────────────────────────────────────────
+  # Detects "coverage theater": models that write tests but never mock external
+  # dependencies.  If urlopen is not mocked the subprocess will fail with a
+  # network error (no real host is reachable), giving an unambiguous score=0.
+
+  - id: test_quality_001
+    category: agentic
+    difficulty: hard
+    description: "Test quality: write mocked unit tests for a class with HTTP dependency"
+    prompt: |
+      Below is a Python class that fetches weather data over HTTP. Write a
+      `unittest.TestCase` subclass called `TestWeatherService` that tests both
+      methods. You MUST mock `urllib.request.urlopen` so the tests run without
+      any real network access.
+
+      The class is already defined — write only the test class (imports included).
+
+      ```python
+      import urllib.request
+      import json
+
+      class WeatherService:
+          BASE = "http://api.weather.example.com/v1"
+
+          def get_temperature(self, city: str) -> float:
+              with urllib.request.urlopen(f"{self.BASE}/{city}/temp") as r:
+                  return json.loads(r.read())["temperature"]
+
+          def is_rainy(self, city: str) -> bool:
+              with urllib.request.urlopen(f"{self.BASE}/{city}/conditions") as r:
+                  return json.loads(r.read())["condition"] == "rain"
+      ```
+    scoring:
+      type: code_exec
+      test_code: |
+        import urllib.request, json, unittest, io, sys
+
+        class WeatherService:
+            BASE = "http://api.weather.example.com/v1"
+
+            def get_temperature(self, city: str) -> float:
+                with urllib.request.urlopen(f"{self.BASE}/{city}/temp") as r:
+                    return json.loads(r.read())["temperature"]
+
+            def is_rainy(self, city: str) -> bool:
+                with urllib.request.urlopen(f"{self.BASE}/{city}/conditions") as r:
+                    return json.loads(r.read())["condition"] == "rain"
+
+        loader = unittest.TestLoader()
+        suite  = loader.loadTestsFromName("TestWeatherService", sys.modules["__main__"])
+        assert suite.countTestCases() >= 2, \
+            f"Expected ≥2 test cases, found {suite.countTestCases()} — test both methods"
+
+        buf    = io.StringIO()
+        result = unittest.TextTestRunner(verbosity=0, stream=buf).run(suite)
+        if not result.wasSuccessful():
+            errs = result.failures + result.errors
+            hint = errs[0][1][-300:] if errs else ""
+            raise AssertionError(
+                f"Tests failed — did you mock urllib.request.urlopen?\n{hint}"
+            )
+        print("PASS")
+
+  # ── Error handling ───────────────────────────────────────────────────────────
+  # Verifies models write specific exception handling, not bare except clauses.
+  # Tests trigger each error path via unittest.mock to confirm correct wrapping.
+
+  - id: error_handling_001
+    category: agentic
+    difficulty: hard
+    description: "Error handling: wrap HTTP call with specific exception types"
+    prompt: |
+      Write a Python function called `fetch_user(user_id: int) -> dict` that
+      fetches a user record from `http://api.example.com/users/{user_id}` using
+      `urllib.request.urlopen` and `json.loads`.
+
+      It must handle errors as follows — no bare `except Exception` allowed:
+        • `urllib.error.HTTPError`  → raise `ValueError` with the HTTP status
+          code in the message (e.g. "HTTP 404")
+        • `urllib.error.URLError`   → raise `ConnectionError` with the reason
+          in the message
+        • `json.JSONDecodeError`    → raise `ValueError("Invalid JSON response")`
+
+      Return only the Python code with no explanation.
+    scoring:
+      type: code_exec
+      test_code: |
+        import urllib.request, urllib.error, json
+        from unittest.mock import patch, MagicMock
+
+        def _mock_response(body: bytes):
+            m = MagicMock()
+            m.__enter__ = MagicMock(return_value=m)
+            m.__exit__  = MagicMock(return_value=False)
+            m.read      = MagicMock(return_value=body)
+            return m
+
+        # Happy path
+        with patch("urllib.request.urlopen", return_value=_mock_response(b'{"id":1,"name":"Alice"}')):
+            r = fetch_user(1)
+            assert r == {"id": 1, "name": "Alice"}, f"happy path: got {r}"
+
+        # HTTPError → ValueError containing the status code
+        with patch("urllib.request.urlopen",
+                   side_effect=urllib.error.HTTPError("u", 404, "Not Found", {}, None)):
+            try:
+                fetch_user(999)
+                assert False, "Expected ValueError for HTTPError"
+            except ValueError as e:
+                assert "404" in str(e), f"ValueError must mention 404, got: {e}"
+
+        # URLError → ConnectionError containing the reason
+        with patch("urllib.request.urlopen",
+                   side_effect=urllib.error.URLError("connection refused")):
+            try:
+                fetch_user(1)
+                assert False, "Expected ConnectionError for URLError"
+            except ConnectionError as e:
+                assert "connection refused" in str(e).lower(), \
+                    f"ConnectionError must mention reason, got: {e}"
+
+        # Bad JSON → ValueError
+        with patch("urllib.request.urlopen", return_value=_mock_response(b"not json")):
+            try:
+                fetch_user(1)
+                assert False, "Expected ValueError for bad JSON"
+            except ValueError as e:
+                assert "json" in str(e).lower(), \
+                    f"ValueError must mention JSON, got: {e}"
+
+        print("PASS")

@@ -158,6 +158,7 @@ def print_report(all_results: dict):
         ("Avg Tokens/sec",     lambda rs: _avg([r.get("tps") for r in rs])),
         ("Avg TTFT (ms)",      lambda rs: _avg([r.get("ttft_ms") for r in rs])),
         ("Avg Total (ms)",     lambda rs: _avg([r.get("total_ms") for r in rs])),
+        ("Avg Output Tokens",  lambda rs: _avg([r.get("completion_tokens") for r in rs])),
         ("Avg Think Tokens",   lambda rs: _avg([r.get("reasoning_tokens") for r in rs])),
         ("Peak VRAM (MB)",     lambda rs: max([r.get("peak_vram_mb", 0) for r in rs] + [0]) or None),
         ("Avg GPU Util (%)",   lambda rs: _avg([r.get("avg_gpu_util") for r in rs if r.get("avg_gpu_util") is not None])),

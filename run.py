@@ -486,14 +486,18 @@ def main():
         )
         all_results[model_info.id] = model_results
 
-        passed   = sum(1 for r in model_results if r["score"] >= 1.0)
-        tps_vals = [r["tps"] for r in model_results if r.get("tps")]
-        avg_tps  = sum(tps_vals) / len(tps_vals) if tps_vals else 0
+        passed    = sum(1 for r in model_results if r["score"] >= 1.0)
+        tps_vals  = [r["tps"] for r in model_results if r.get("tps")]
+        tok_vals  = [r["completion_tokens"] for r in model_results if r.get("completion_tokens")]
+        avg_tps   = sum(tps_vals) / len(tps_vals) if tps_vals else 0
+        avg_tok   = sum(tok_vals) / len(tok_vals) if tok_vals else None
         score_pct = passed / len(model_results) * 100 if model_results else 0
+        tok_str   = f"  Avg Tokens: {avg_tok:.0f}" if avg_tok else ""
         console.print(
             f"\n  [bold]Score: {passed}/{len(model_results)} "
             f"({score_pct:.0f}%)  "
-            f"Avg TPS: {avg_tps:.1f}[/bold]\n"
+            f"Avg TPS: {avg_tps:.1f}"
+            f"{tok_str}[/bold]\n"
         )
 
     print_report(all_results)
