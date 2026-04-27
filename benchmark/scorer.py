@@ -215,6 +215,7 @@ def score_response(task: dict, run_result: dict, allow_code_exec: bool = False,
         "word_count":       _score_word_count,
         "regex":            _score_regex,
         "json_keys":        _score_json_keys,
+        "json_schema":      _score_json_schema,
         "line_count":       _score_line_count,
         "code_exec":        _code_exec_fn,
         "logprob_choice":   _score_logprob_choice,
@@ -242,16 +243,19 @@ def _extract_number(text: str) -> float | None:
     return None
 
 
-def _extract_code(response: str) -> str:
-    """Extract a Python code block from a model response."""
-    # Prefer ```python ... ```
-    m = re.search(r"```python\n(.*?)```", response, re.DOTALL)
-    if m:
-        return m.group(1).strip()
-    # Any fenced block
-    m = re.search(r"```\n?(.*?)```", response, re.DOTALL)
-    if m:
-        return m.group(1).strip()
+def _extract_code(response: str, extract: str = "first") -> str:
+    """Extract a Python code block from a model response.
+
+    extract="first" returns the first fenced block (default).
+    extract="last"  returns the last fenced block — useful for
+    self-critique tasks where the IMPROVED solution comes last.
+    """
+    python_blocks = re.findall(r"```python\n(.*?)```", response, re.DOTALL)
+    if python_blocks:
+        return (python_blocks[-1] if extract == "last" else python_blocks[0]).strip()
+    all_blocks = re.findall(r"```\n?(.*?)```", response, re.DOTALL)
+    if all_blocks:
+        return (all_blocks[-1] if extract == "last" else all_blocks[0]).strip()
     # Heuristic: start from the first def / class / import line
     lines = response.strip().split("\n")
     for i, line in enumerate(lines):
@@ -288,9 +292,18 @@ def _score_numeric(response: str, scoring: dict):
     except (TypeError, ValueError):
         return 0.0, f"Invalid expected value: {raw!r}"
     tolerance = float(scoring.get("tolerance", 0))
-    got = _extract_number(response)
-    if got is None:
+    # Collect all numbers and pick the one closest to expected — avoids
+    # false positives when the prompt itself contains a number (e.g. "Carbon-14"
+    # appearing before the real answer "5730").
+    candidates = []
+    for m in re.findall(r"-?\d+\.?\d*", response.replace(",", "")):
+        try:
+            candidates.append(float(m))
+        except ValueError:
+            pass
+    if not candidates:
         return 0.0, f"No number found. Expected {expected}"
+    got = min(candidates, key=lambda n: abs(n - expected))
     if abs(got - expected) <= tolerance:
         return 1.0, f"Correct ({got})"
     return 0.0, f"Got {got}, expected {expected} ±{tolerance}"
@@ -401,6 +414,71 @@ def _score_json_keys(response: str, scoring: dict):
     return 0.0, f"Missing keys: {best_missing}"
 
 
+def _score_json_schema(response: str, scoring: dict):
+    """Validate response JSON against a lightweight inline schema.
+
+    Scoring YAML keys:
+      root         — "array" or "object" (default: "object")
+      min_items    — minimum array length when root=array (default: 0)
+      required_keys — keys that must be present on each item (array) or root (object)
+      array_keys   — keys whose values must themselves be arrays (object root only)
+    """
+    root_type     = scoring.get("root", "object")
+    required_keys = scoring.get("required_keys", [])
+    array_keys    = scoring.get("array_keys", [])
+    min_items     = int(scoring.get("min_items", 0))
+
+    # Strip markdown fences so models that wrap JSON in ```json ... ``` still pass.
+    text = re.sub(r"^```(?:json)?\s*", "", response.strip(), flags=re.IGNORECASE)
+    text = re.sub(r"\s*```$", "", text).strip()
+
+    data = None
+    try:
+        data = json.loads(text)
+    except json.JSONDecodeError:
+        decoder = json.JSONDecoder()
+        for i, ch in enumerate(response):
+            if ch in ("{", "["):
+                try:
+                    data, _ = decoder.raw_decode(response[i:])
+                    break
+                except json.JSONDecodeError:
+                    continue
+
+    if data is None:
+        return 0.0, "No valid JSON found in response"
+
+    if root_type == "array":
+        if not isinstance(data, list):
+            return 0.0, f"Expected JSON array at root, got {type(data).__name__}"
+        if len(data) < min_items:
+            return 0.0, f"Array has {len(data)} item(s), need ≥{min_items}"
+        items = data
+    else:
+        if not isinstance(data, dict):
+            return 0.0, f"Expected JSON object at root, got {type(data).__name__}"
+        items = [data]
+        errors = [f"Key {k!r} must be an array" for k in array_keys
+                  if k in data and not isinstance(data[k], list)]
+        if errors:
+            return 0.0, "; ".join(errors)
+
+    if required_keys:
+        item_errors = []
+        for idx, item in enumerate(items):
+            if not isinstance(item, dict):
+                item_errors.append(f"Item {idx} is not an object")
+                continue
+            missing = [k for k in required_keys if k not in item]
+            if missing:
+                item_errors.append(f"Item {idx} missing: {missing}")
+        if item_errors:
+            return 0.0, "; ".join(item_errors[:3])
+
+    n = len(items)
+    return 1.0, f"JSON schema valid ({n} item{'s' if n != 1 else ''})"
+
+
 def _score_line_count(response: str, scoring: dict):
     raw = scoring.get("value", scoring.get("count"))
     if raw is None:
@@ -419,7 +497,7 @@ _CODE_EXEC_TIMEOUT_S = 10
 
 
 def _score_code_exec(response: str, scoring: dict):
-    code = _extract_code(response)
+    code = _extract_code(response, extract=scoring.get("extract", "first"))
     if not code.strip():
         return 0.0, "code_exec: no Python code block found in response"
     test_code = scoring.get("test_code", "print('PASS')")
