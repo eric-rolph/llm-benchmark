@@ -5,6 +5,7 @@ tasks:
   - id: code_001
     category: coding
     difficulty: hard
+    contamination_risk: high
     description: "Longest increasing subsequence — length"
     prompt: |
       Write a Python function called `longest_increasing_subsequence(nums)` that returns
@@ -34,6 +35,7 @@ tasks:
   - id: code_002
     category: coding
     difficulty: medium
+    contamination_risk: high
     description: "Group anagrams"
     prompt: |
       Write a Python function called `group_anagrams(words)` that groups all anagrams
@@ -60,6 +62,7 @@ tasks:
   - id: code_003
     category: coding
     difficulty: medium
+    contamination_risk: high
     description: "Maximum subarray sum (Kadane's algorithm)"
     prompt: |
       Write a Python function called `max_subarray_sum(nums)` that returns the maximum
@@ -88,6 +91,7 @@ tasks:
   - id: code_004
     category: coding
     difficulty: hard
+    contamination_risk: high
     description: "Count islands (DFS/BFS on binary grid)"
     prompt: |
       Write a Python function called `count_islands(grid)` where `grid` is a 2-D list
@@ -113,6 +117,7 @@ tasks:
   - id: code_005
     category: coding
     difficulty: easy
+    contamination_risk: high
     description: "Two-sum returning sorted index pair"
     prompt: |
       Write a Python function called `two_sum(nums, target)` that returns a list
@@ -162,6 +167,7 @@ tasks:
   - id: code_007
     category: coding
     difficulty: medium
+    contamination_risk: high
     description: "Merge overlapping intervals"
     prompt: |
       Write a Python function called `merge_intervals(intervals)` that takes a list of
@@ -264,6 +270,7 @@ tasks:
   - id: code_011
     category: coding
     difficulty: hard
+    contamination_risk: high
     description: "Rotate square matrix 90 degrees clockwise"
     prompt: |
       Write a Python function called `rotate_matrix(matrix)` that rotates a square matrix
@@ -297,4 +304,170 @@ tasks:
         assert count_vowels("AEIOU") == 5
         assert count_vowels("rhythm") == 0
         assert count_vowels("") == 0
+        print("PASS")
+
+  # ── Harder tasks (anti-saturation) ───────────────────────────────────────────
+  # Novel-combination problems that resist recall. Classic training data
+  # contains fragments but not exact solutions to these compositions.
+
+  - id: code_013
+    category: coding
+    difficulty: hard
+    description: "Thread-safe LRU cache — stdlib only (threading.Lock + OrderedDict)"
+    prompt: |
+      Write a Python class called `LRUCache` that implements a Least Recently Used cache
+      using only the standard library (threading.Lock and collections.OrderedDict).
+
+      Constructor: LRUCache(capacity: int)
+      Methods:
+        get(key)         — return the value, or None if not present;
+                           marks the key as most recently used.
+        put(key, value)  — insert or update the key; if at capacity,
+                           evict the least recently used entry first.
+
+      The implementation must be thread-safe: concurrent get/put from different
+      threads must not raise exceptions or corrupt state.
+      Return only the Python code with no explanation.
+    scoring:
+      type: code_exec
+      test_code: |
+        import threading
+
+        # Basic LRU semantics
+        c = LRUCache(2)
+        c.put("a", 1)
+        c.put("b", 2)
+        assert c.get("a") == 1,    f"expected 1, got {c.get('a')}"
+        c.put("c", 3)              # evicts "b" (LRU)
+        assert c.get("b") is None, f"b should be evicted"
+        assert c.get("a") == 1
+        assert c.get("c") == 3
+
+        # Access updates recency
+        c2 = LRUCache(2)
+        c2.put("x", 10)
+        c2.put("y", 20)
+        c2.get("x")               # x is now MRU; y is LRU
+        c2.put("z", 30)           # evicts y
+        assert c2.get("y") is None, f"y should be evicted"
+        assert c2.get("x") == 10
+        assert c2.get("z") == 30
+
+        # Overwrite an existing key (no eviction, recency updated)
+        c3 = LRUCache(2)
+        c3.put("a", 1)
+        c3.put("b", 2)
+        c3.put("a", 99)           # overwrite a → a is MRU
+        c3.put("c", 3)            # evicts b
+        assert c3.get("b") is None, "b should be evicted"
+        assert c3.get("a") == 99
+
+        # Thread safety: concurrent access must not raise
+        c4 = LRUCache(4)
+        errors = []
+        def _worker():
+            try:
+                for i in range(60):
+                    c4.put(f"k{i % 8}", i)
+                    c4.get(f"k{i % 8}")
+            except Exception as e:
+                errors.append(e)
+        threads = [threading.Thread(target=_worker) for _ in range(8)]
+        for t in threads: t.start()
+        for t in threads: t.join()
+        assert not errors, f"Thread errors: {errors}"
+        print("PASS")
+
+  - id: code_014
+    category: coding
+    difficulty: hard
+    description: "Recursive descent expression parser — no eval()"
+    prompt: |
+      Write a Python function called `evaluate(expr: str) -> float` that evaluates
+      a mathematical expression string supporting:
+        • Integers and floats (e.g. 3, 3.14)
+        • Operators: + - * / with standard precedence (* and / before + and -)
+        • Parentheses for grouping
+        • Spaces anywhere in the expression
+
+      Implement this as a recursive descent parser. Do NOT use eval(), exec(),
+      ast.literal_eval(), or any expression-evaluation library.
+      Return only the Python code with no explanation.
+    scoring:
+      type: code_exec
+      test_code: |
+        assert evaluate("1 + 2")           == 3,    f"got {evaluate('1 + 2')}"
+        assert evaluate("2 * 3 + 4")       == 10,   f"got {evaluate('2 * 3 + 4')}"
+        assert evaluate("2 + 3 * 4")       == 14,   f"got {evaluate('2 + 3 * 4')}"
+        assert evaluate("(2 + 3) * 4")     == 20,   f"got {evaluate('(2 + 3) * 4')}"
+        assert evaluate("10 / 2 - 1")      == 4.0,  f"got {evaluate('10 / 2 - 1')}"
+        assert evaluate("100")             == 100,  f"got {evaluate('100')}"
+        assert evaluate("(1 + 2) * (3 + 4)") == 21, f"got {evaluate('(1+2)*(3+4)')}"
+        assert evaluate("1 + 2 + 3 + 4")  == 10,   f"got {evaluate('1+2+3+4')}"
+        assert abs(evaluate("22 / 7") - 22/7) < 1e-9, f"got {evaluate('22 / 7')}"
+        assert evaluate("(10 - 2) * (3 + 1) / 4") == 8.0, \
+               f"got {evaluate('(10-2)*(3+1)/4')}"
+        assert evaluate("  3 +  4 *  2 ")  == 11,  f"got {evaluate('  3 +  4 *  2 ')}"
+        print("PASS")
+
+  - id: code_015
+    category: coding
+    difficulty: hard
+    description: "Consistent hashing ring with virtual nodes — stdlib only"
+    prompt: |
+      Write a Python class called `HashRing` that implements consistent hashing
+      with virtual nodes using only the standard library.
+
+      Constructor: HashRing(virtual_nodes: int = 100)
+        — virtual_nodes is the number of replica points placed on the ring per node.
+      Methods:
+        add_node(name: str) -> None    — add a named node (and its virtual replicas)
+        remove_node(name: str) -> None — remove a node and all its replicas
+        get_node(key: str) -> str | None — return the node responsible for key;
+                                           return None if the ring is empty
+
+      Requirements:
+        • Use hashlib (md5 or sha1) to map virtual nodes and keys onto the ring.
+        • get_node must be deterministic: same key → same node for a given ring state.
+        • After remove_node, keys that were assigned to the removed node are
+          reassigned to the next node on the ring (standard consistent hashing).
+
+      Return only the Python code with no explanation.
+    scoring:
+      type: code_exec
+      test_code: |
+        ring = HashRing()
+        ring.add_node("server1")
+        ring.add_node("server2")
+        ring.add_node("server3")
+
+        keys = ["user:1", "user:2", "item:99", "session:abc", "order:xyz"]
+        nodes = {"server1", "server2", "server3"}
+
+        # All keys resolve to a valid node
+        for key in keys:
+            node = ring.get_node(key)
+            assert node in nodes, f"get_node({key!r}) returned {node!r}"
+
+        # Deterministic: same key always maps to same node
+        for key in keys:
+            assert ring.get_node(key) == ring.get_node(key), \
+                f"get_node({key!r}) is non-deterministic"
+
+        # Distribution: at least 2 nodes receive traffic across 30 keys
+        bulk_keys = [f"key{i}" for i in range(30)]
+        assigned = {ring.get_node(k) for k in bulk_keys}
+        assert len(assigned) >= 2, f"Only {len(assigned)} node(s) used — poor distribution"
+
+        # After removing a node, all keys still resolve to the remaining nodes
+        ring.remove_node("server2")
+        remaining = {"server1", "server3"}
+        for key in keys + bulk_keys:
+            node = ring.get_node(key)
+            assert node in remaining, \
+                f"After remove: got {node!r} for {key!r}"
+
+        # Empty ring returns None
+        empty = HashRing()
+        assert empty.get_node("anything") is None, "empty ring must return None"
         print("PASS")

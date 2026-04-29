@@ -141,6 +141,18 @@ def print_report(all_results: dict):
         total_row.append(f"[bold]{passed}/{len(rs)}  ({pct:.0f}%)[/bold]")
     acc.add_row(*total_row)
 
+    # Clean score row: exclude tasks with contamination_risk: high
+    clean_row = ["[dim]Excl. memorised[/dim]"]
+    for m in models:
+        rs = [r for r in all_results[m] if r["task"].get("contamination_risk") != "high"]
+        if rs:
+            passed = sum(1 for r in rs if r["score"] >= 1.0)
+            pct = sum(r["score"] for r in rs) / len(rs) * 100
+            clean_row.append(f"[dim]{passed}/{len(rs)}  ({pct:.0f}%)[/dim]")
+        else:
+            clean_row.append("[dim]—[/dim]")
+    acc.add_row(*clean_row)
+
     comp_row = ["[bold]Composite ★[/bold]"]
     for m in models:
         c = _composite_score(all_results[m])
@@ -271,6 +283,20 @@ def print_report(all_results: dict):
                     row.append("—")
             diff_table.add_row(*row)
         console.print(diff_table)
+
+    # Saturation warning: when any model scores above 85%, the benchmark
+    # differentiates poorly — SWE-bench lesson.
+    model_means = []
+    for m in models:
+        rs = all_results[m]
+        if rs:
+            model_means.append(sum(r["score"] for r in rs) / len(rs))
+    if model_means and max(model_means) > 0.85:
+        console.print(
+            "\n[dim yellow]⚠  Scores near ceiling (>85%) — "
+            "benchmark differentiates poorly at this level. "
+            "Consider adding harder tasks (see BACKLOG.md §2.2).[/dim yellow]"
+        )
 
 
 def _short(model_id: str, max_len: int = 32) -> str:

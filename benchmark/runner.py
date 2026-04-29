@@ -417,6 +417,11 @@ class ModelRunner:
 
         # Strip any <think>…</think> blocks that may have leaked into delta.content
         clean = strip_thinking(response_text)
+        # Qwen3 (and some other thinking models) route all output through
+        # reasoning_content, leaving response_text empty. Fall back to stripped
+        # reasoning when content is blank so code_exec tasks still see a response.
+        if not clean.strip() and reasoning_text.strip():
+            clean = strip_thinking(reasoning_text)
 
         return {
             "task_id": task["id"],

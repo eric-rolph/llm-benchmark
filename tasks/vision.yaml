@@ -21,8 +21,8 @@ tasks:
     prompt: "Describe what you see in this image in 1-2 sentences."
     image_url: "https://picsum.photos/id/237/400/300"
     scoring:
-      type: contains
-      value: "dog"
+      type: regex
+      pattern: "(?i)(dog|canine|puppy|pup)"
 
   - id: vision_describe_mountain
     category: reasoning
