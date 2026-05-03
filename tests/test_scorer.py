@@ -683,3 +683,85 @@ class TestWorkflowTrace:
         assert s == 0.0
         assert "JSON object" in d
 
+    def test_replay_derives_state_from_tool_calls(self):
+        payload = {
+            "tool_calls": [
+                {"tool": "billing.issue_refund", "args": {"invoice_id": "INV-77"}},
+                {"tool": "helpdesk.update_ticket", "args": {"ticket_id": "T-900", "status": "resolved"}},
+            ],
+            # This incorrect claimed state should be ignored when replay is configured.
+            "state": {"billing": {"invoices": {"INV-77": {"refund_status": "not_issued"}}}},
+        }
+
+        s, d = score(
+            {
+                "type": "workflow_trace",
+                "required_call_args": [
+                    {"tool": "billing.issue_refund", "args": {"invoice_id": "INV-77"}},
+                    {"tool": "helpdesk.update_ticket", "args": {"ticket_id": "T-900", "status": "resolved"}},
+                ],
+                "replay": {
+                    "initial_state": {
+                        "billing": {"invoices": {"INV-77": {"refund_status": "eligible"}}},
+                        "helpdesk": {"tickets": {"T-900": {"status": "open"}}},
+                    },
+                    "effects": {
+                        "billing.issue_refund": {
+                            "required_args": ["invoice_id"],
+                            "set": {
+                                "billing.invoices.$args.invoice_id.refund_status": "issued",
+                            },
+                            "append": {
+                                "billing.refunds": {
+                                    "invoice_id": "$args.invoice_id",
+                                    "status": "issued",
+                                }
+                            },
+                        },
+                        "helpdesk.update_ticket": {
+                            "required_args": ["ticket_id", "status"],
+                            "set": {
+                                "helpdesk.tickets.$args.ticket_id.status": "$args.status",
+                            },
+                        },
+                    },
+                },
+                "expected_state": {
+                    "billing.invoices.INV-77.refund_status": "issued",
+                    "helpdesk.tickets.T-900.status": "resolved",
+                    "billing.refunds.0.invoice_id": "INV-77",
+                },
+            },
+            json.dumps(payload),
+        )
+
+        assert s == pytest.approx(1.0)
+        assert "all" in d
+
+    def test_replay_penalizes_missing_required_args(self):
+        payload = {
+            "tool_calls": [{"tool": "billing.issue_refund", "args": {}}],
+            "state": {},
+        }
+        task = make_task(
+            {
+                "type": "workflow_trace",
+                "replay": {
+                    "initial_state": {"billing": {"invoices": {"INV-77": {"refund_status": "eligible"}}}},
+                    "effects": {
+                        "billing.issue_refund": {
+                            "required_args": ["invoice_id"],
+                            "set": {"billing.invoices.$args.invoice_id.refund_status": "issued"},
+                        }
+                    },
+                },
+                "expected_state": {"billing.invoices.INV-77.refund_status": "issued"},
+            }
+        )
+
+        scored = score_response(task, make_result(json.dumps(payload)))
+
+        assert scored["score"] == 0.0
+        assert scored["passed"] is False
+        assert "missing arg" in scored["score_detail"]
+
