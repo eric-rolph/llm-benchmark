@@ -32,7 +32,7 @@ tasks:
 | Field      | Type   | Description |
 |------------|--------|-------------|
 | `id`       | string | Unique identifier — no spaces, use `snake_case` |
-| `category` | string | One of: `math`, `reasoning`, `coding`, `instruction_following`, `knowledge`, `writing`, `summarization` |
+| `category` | string | One of: `math`, `reasoning`, `coding`, `agentic`, `instruction_following`, `knowledge`, `writing`, `summarization` |
 | `prompt`   | string | The question or instruction sent to the model |
 | `scoring`  | dict   | Scoring configuration (see below) |
 
@@ -45,6 +45,9 @@ Dataset-driven tasks use `dataset` + `template` instead of `prompt`; see [Datase
 | `system`      | string  | none    | System prompt prepended before user turn |
 | `temperature` | float   | from config | Override per-task temperature |
 | `max_tokens`  | int     | from config | Override per-task token limit |
+| `pass_threshold` | float | 0.8 | Score needed for PASS/FAIL reporting |
+| `execution_surface` | string | none | Surface tag for Claw-style reporting, e.g. `local_workspace_repair` |
+| `source_signal` | string | none | Demand signal or workflow family that motivated the task |
 | `thinking`    | boolean | false   | Request thinking/reasoning mode (Ollama only) |
 | `image_url`   | string/list | none | Remote image URL(s) for vision-language tasks |
 | `image_path`  | string/list | none | Local image path(s) for vision-language tasks |
@@ -150,6 +153,41 @@ scoring:
     assert solve(5) == 42
     print("PASS")
 ```
+
+### `workflow_trace`
+Scores a model-produced JSON workflow trace with deterministic checks. This is
+useful for agentic tasks where the benchmark should grade the path taken and
+the final mock state, not just the final prose answer.
+
+```yaml
+execution_surface: local_workspace_repair
+source_signal: workspace-repair
+scoring:
+  type: workflow_trace
+  min_calls: 3
+  required_tools: [read_file, edit_file, run_tests]
+  ordered_tools: [read_file, edit_file, run_tests]
+  expected_state:
+    repo.tests_passed: true
+    repo.changed_files:
+      contains:
+        - benchmark/scorer.py
+        - tests/test_scorer.py
+  state_contains:
+    repo.summary: workflow trace
+```
+
+Expected response shape:
+
+```json
+{
+  "tool_calls": [{"tool": "read_file"}, {"tool": "edit_file"}, {"tool": "run_tests"}],
+  "state": {"repo": {"tests_passed": true}}
+}
+```
+
+`expected_state` uses dotted paths under `state`/`final_state`. Values are exact
+by default; use `{contains: ...}` for string/list containment.
 
 ### `llm_judge`
 Scores subjective tasks with a configured judge model. Enable `judge.enabled: true`

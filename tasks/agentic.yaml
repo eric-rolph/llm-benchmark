@@ -1,5 +1,8 @@
 metadata:
   version: 1
+  release: "2026Q2-live-agent-slice"
+  signal_snapshot: "2026-05-03"
+  signal_source: Claw-Eval-Live-inspired workflow agent tasks
 
 tasks:
   # ── Code debugging ──────────────────────────────────────────────────────────
@@ -372,3 +375,83 @@ tasks:
           weight: 2.0
         - criterion: "The plan is logically ordered: setup → scrape → store → query; each step follows from the previous"
           weight: 2.0
+
+  # ── Workflow traces ────────────────────────────────────────────────────────
+  # Model emits a structured execution trace and final mock state. Scored with
+  # deterministic checks instead of prose judging.
+
+  - id: workflow_trace_repo_repair_001
+    category: agentic
+    difficulty: hard
+    execution_surface: local_workspace_repair
+    source_signal: workspace-repair
+    description: "Workflow trace: repair failing repo and prove tests passed"
+    prompt: |
+      You are controlling a repo-repair agent. A Python package has one failing
+      unit test because `benchmark/scorer.py` does not expose a deterministic
+      workflow trace scorer. Produce ONLY a JSON object with:
+        "tool_calls": an ordered list of tool calls you would make. Each call
+          must be an object with a "tool" field.
+        "state": the final verified workspace state.
+
+      The trace must show that you inspected the relevant files, edited the
+      scorer, added tests, ran pytest, and finished with tests passing.
+    scoring:
+      type: workflow_trace
+      min_calls: 5
+      required_tools:
+        - read_file
+        - edit_file
+        - run_tests
+      ordered_tools:
+        - read_file
+        - edit_file
+        - run_tests
+      expected_state:
+        repo.tests_passed: true
+        repo.changed_files:
+          contains:
+            - benchmark/scorer.py
+            - tests/test_scorer.py
+      state_contains:
+        repo.summary: workflow trace
+
+  - id: workflow_trace_cross_system_refund_001
+    category: agentic
+    difficulty: hard
+    execution_surface: multi_system_business_workflow
+    source_signal: cross-tool
+    description: "Workflow trace: resolve a refund across CRM, billing, and email"
+    prompt: |
+      You are controlling a business workflow agent. Customer C-1042 has an
+      open support ticket T-900 about duplicate invoice INV-77. Billing shows
+      the duplicate charge is refundable. Produce ONLY a JSON object with:
+        "tool_calls": an ordered list of tool calls you would make. Each call
+          must be an object with a "tool" field.
+        "state": the final verified service state.
+
+      The trace must show that you looked up the customer, checked billing,
+      issued the refund, updated the ticket, and sent a customer email.
+    scoring:
+      type: workflow_trace
+      min_calls: 5
+      required_tools:
+        - crm.lookup_customer
+        - billing.get_invoice
+        - billing.issue_refund
+        - helpdesk.update_ticket
+        - email.send
+      ordered_tools:
+        - crm.lookup_customer
+        - billing.get_invoice
+        - billing.issue_refund
+        - helpdesk.update_ticket
+        - email.send
+      expected_state:
+        crm.customer_id: C-1042
+        billing.invoice_id: INV-77
+        billing.refund_status: issued
+        helpdesk.ticket_id: T-900
+        helpdesk.status: resolved
+      state_contains:
+        email.body: refund

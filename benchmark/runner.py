@@ -222,11 +222,22 @@ class ModelRunner:
         models that don't produce clean formatted answers.
         """
         messages = self._build_messages(task)
+        scoring_type = task.get("scoring", {}).get("type", "")
         hf_cfg = getattr(self, "hf_generation_config", {})
         temperature = task.get("temperature", hf_cfg.get("temperature", self.bench.get("temperature", 0.0)))
         req_timeout = self.bench.get("timeout", 180)
 
         t_start = time.perf_counter()
+        trace = {
+            "surface": task.get("execution_surface", "model_response"),
+            "scoring_type": scoring_type,
+            "request": {
+                "temperature": temperature,
+                "max_tokens": 1,
+                "logprobs": True,
+            },
+            "events": [{"event": "request_start", "elapsed_ms": 0.0}],
+        }
         telemetry = TelemetryTracker()
         telemetry.start()
 
@@ -243,6 +254,11 @@ class ModelRunner:
             )
         except Exception as e:
             telemetry.stop()
+            trace["events"].append({
+                "event": "error",
+                "elapsed_ms": round((time.perf_counter() - t_start) * 1000, 1),
+                "message": str(e),
+            })
             return {
                 "task_id": task["id"],
                 "response": "",
@@ -253,6 +269,7 @@ class ModelRunner:
                 "completion_tokens": 0,
                 "reasoning_tokens": 0,
                 "backend": self.backend.name,
+                "execution_trace": trace,
             }
 
         telemetry_data = telemetry.stop()
@@ -275,6 +292,11 @@ class ModelRunner:
                 choice_text = sorted_probs[0][0]
 
         completion_tokens = getattr(resp.usage, "completion_tokens", 0) if resp.usage else 0
+        trace["events"].append({
+            "event": "response_complete",
+            "elapsed_ms": round(total_ms, 1),
+            "completion_tokens": completion_tokens,
+        })
 
         return {
             "task_id": task["id"],
@@ -289,6 +311,7 @@ class ModelRunner:
             "backend": self.backend.name,
             "logprob_detail": logprob_detail,
             "hf_generation_config": dict(self.hf_generation_config),
+            "execution_trace": trace,
             **telemetry_data,
         }
 
@@ -328,6 +351,18 @@ class ModelRunner:
         reasoning_text = ""
         completion_tokens = 0
         reasoning_tokens  = 0
+        trace = {
+            "surface": task.get("execution_surface", "model_response"),
+            "scoring_type": scoring_type,
+            "request": {
+                "temperature": temperature,
+                "max_tokens": max_tokens,
+                "top_p": top_p,
+                "top_k": top_k,
+                "repetition_penalty": rep_penalty,
+            },
+            "events": [{"event": "request_start", "elapsed_ms": 0.0}],
+        }
         
         telemetry = TelemetryTracker()
         telemetry.start()
@@ -358,6 +393,10 @@ class ModelRunner:
                     if rc:
                         if t_first_reasoning is None:
                             t_first_reasoning = time.perf_counter()
+                            trace["events"].append({
+                                "event": "first_reasoning_token",
+                                "elapsed_ms": round((t_first_reasoning - t_start) * 1000, 1),
+                            })
                         reasoning_text += rc
 
                     # Ollama thinking field (returned when think=True)
@@ -365,12 +404,20 @@ class ModelRunner:
                     if ot:
                         if t_first_reasoning is None:
                             t_first_reasoning = time.perf_counter()
+                            trace["events"].append({
+                                "event": "first_reasoning_token",
+                                "elapsed_ms": round((t_first_reasoning - t_start) * 1000, 1),
+                            })
                         reasoning_text += ot
 
                     # Regular content — the actual answer
                     if delta.content:
                         if t_first_content is None:
                             t_first_content = time.perf_counter()
+                            trace["events"].append({
+                                "event": "first_content_token",
+                                "elapsed_ms": round((t_first_content - t_start) * 1000, 1),
+                            })
                         response_text += delta.content
 
                 if getattr(chunk, "usage", None):
@@ -386,6 +433,11 @@ class ModelRunner:
 
         except Exception as e:
             telemetry.stop()
+            trace["events"].append({
+                "event": "error",
+                "elapsed_ms": round((time.perf_counter() - t_start) * 1000, 1),
+                "message": str(e),
+            })
             return {
                 "task_id": task["id"],
                 "response": "",
@@ -396,6 +448,7 @@ class ModelRunner:
                 "completion_tokens": 0,
                 "reasoning_tokens": 0,
                 "backend": self.backend.name,
+                "execution_trace": trace,
             }
 
         telemetry_data = telemetry.stop()
@@ -423,6 +476,13 @@ class ModelRunner:
         if not clean.strip() and reasoning_text.strip():
             clean = strip_thinking(reasoning_text)
 
+        trace["events"].append({
+            "event": "response_complete",
+            "elapsed_ms": round(total_ms, 1),
+            "completion_tokens": completion_tokens,
+            "reasoning_tokens": reasoning_tokens,
+        })
+
         return {
             "task_id": task["id"],
             "response": clean,
@@ -435,6 +495,7 @@ class ModelRunner:
             "reasoning_tokens": reasoning_tokens,
             "backend": self.backend.name,
             "hf_generation_config": dict(self.hf_generation_config),
+            "execution_trace": trace,
             **telemetry_data,
         }
 

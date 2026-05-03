@@ -19,6 +19,7 @@ _REQUIRED_FIELDS = {"id", "prompt", "category", "scoring"}
 
 # Dataset tasks have a different required set — they use template instead of prompt
 _DATASET_REQUIRED_FIELDS = {"id", "category", "dataset", "template", "scoring"}
+_FILE_METADATA_FIELDS = {"release", "signal_snapshot", "signal_source"}
 
 logger = logging.getLogger(__name__)
 
@@ -77,8 +78,15 @@ def load_tasks(
             raw_tasks = data.get("tasks", [])
             _meta = data.get("metadata", {})
             file_version = _meta.get("version") if isinstance(_meta, dict) else None
+            file_metadata = {
+                key: _meta[key]
+                for key in _FILE_METADATA_FIELDS
+                if isinstance(_meta, dict) and key in _meta
+            }
         else:
             continue  # skip empty / non-task YAML files
+        if isinstance(data, list):
+            file_metadata = {}
         for i, task in enumerate(raw_tasks):
             if validate:
                 _validate_task(task, yaml_file.name, i)
@@ -100,5 +108,7 @@ def load_tasks(
                     t = dict(t)
                     if file_version is not None:
                         t["_version"] = file_version
+                    for key, value in file_metadata.items():
+                        t.setdefault(f"_{key}", value)
                     tasks.append(t)
     return tasks

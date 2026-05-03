@@ -49,6 +49,7 @@ from rich import box
 from benchmark.backends import create_backend, discover_all_models
 from benchmark.backends.base import ModelInfo
 from benchmark.console import make_console
+from benchmark.evaluation import annotate_pass, result_passed, task_pass_threshold
 from benchmark.loader import load_tasks
 from benchmark.reporter import print_report, print_task_result, save_results, append_jsonl, save_html_report
 from benchmark.runner import ModelRunner
@@ -84,13 +85,15 @@ def _record_cache_key(record: dict) -> tuple[str, str, str, str]:
 
 def _hydrate_cached_result(task: dict, record: dict) -> dict:
     """Convert a cached JSONL row back into a scored result for reporting."""
-    return {
+    result = {
         "task_id": task["id"],
         "task": task,
         "response": record.get("response_preview", ""),
         "error": None,
         "score": float(record.get("score", 0.0)),
         "max_score": 1.0,
+        "pass_threshold": record.get("pass_threshold", task_pass_threshold(task)),
+        "passed": record.get("passed"),
         "score_detail": record.get("score_detail", ""),
         "tps": record.get("tps"),
         "ttft_ms": record.get("ttft_ms"),
@@ -103,7 +106,11 @@ def _hydrate_cached_result(task: dict, record: dict) -> dict:
         "model_id": record.get("model_id", record.get("model", "?")),
         "logprob_detail": record.get("logprob_detail"),
         "hf_generation_config": record.get("hf_generation_config"),
+        "execution_trace": record.get("execution_trace"),
     }
+    if result["passed"] is None:
+        annotate_pass(result)
+    return result
 
 
 def _run_model(
@@ -174,6 +181,7 @@ def _run_model(
                     scored["score_std"] = (
                         statistics.stdev(per_run_scores) if len(per_run_scores) > 1 else 0.0
                     )
+                    annotate_pass(scored)
 
         scored["model_id"] = model_info.id
         model_results.append(scored)
@@ -517,7 +525,7 @@ def main():
         )
         all_results[model_info.id] = model_results
 
-        passed    = sum(1 for r in model_results if r["score"] >= 1.0)
+        passed    = sum(1 for r in model_results if result_passed(r))
         tps_vals  = [r["tps"] for r in model_results if r.get("tps")]
         tok_vals  = [r["completion_tokens"] for r in model_results if r.get("completion_tokens")]
         avg_tps   = sum(tps_vals) / len(tps_vals) if tps_vals else 0
