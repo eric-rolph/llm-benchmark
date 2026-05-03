@@ -10,6 +10,7 @@ from rich import box
 from rich.table import Table
 
 from benchmark.console import make_console
+from benchmark.evaluation import result_passed
 from benchmark.utils import _avg, task_fingerprint
 
 console = make_console()
@@ -18,6 +19,7 @@ CATEGORY_WEIGHTS: dict = {
     "coding":                1.5,
     "math":                  1.2,
     "reasoning":             1.2,
+    "agentic":               1.4,
     "knowledge":             1.0,
     "instruction_following": 1.0,
     "summarization":         0.8,
@@ -80,7 +82,7 @@ def print_task_result(result: dict):
 
     if error:
         icon, style = "E", "red"
-    elif score >= 1.0:
+    elif result_passed(result):
         icon, style = "✓", "green"
     elif score > 0:
         icon, style = "~", "yellow"
@@ -121,7 +123,7 @@ def print_report(all_results: dict):
         for m in models:
             rs = [r for r in all_results[m] if r["task"]["category"] == cat]
             if rs:
-                passed = sum(1 for r in rs if r["score"] >= 1.0)
+                passed = sum(1 for r in rs if result_passed(r))
                 pct = sum(r["score"] for r in rs) / len(rs) * 100
                 stds = [r["score_std"] for r in rs if r.get("score_std") is not None]
                 if stds:
@@ -136,7 +138,7 @@ def print_report(all_results: dict):
     total_row = ["[bold]TOTAL[/bold]"]
     for m in models:
         rs = all_results[m]
-        passed = sum(1 for r in rs if r["score"] >= 1.0)
+        passed = sum(1 for r in rs if result_passed(r))
         pct = sum(r["score"] for r in rs) / len(rs) * 100 if rs else 0
         total_row.append(f"[bold]{passed}/{len(rs)}  ({pct:.0f}%)[/bold]")
     acc.add_row(*total_row)
@@ -146,7 +148,7 @@ def print_report(all_results: dict):
     for m in models:
         rs = [r for r in all_results[m] if r["task"].get("contamination_risk") != "high"]
         if rs:
-            passed = sum(1 for r in rs if r["score"] >= 1.0)
+            passed = sum(1 for r in rs if result_passed(r))
             pct = sum(r["score"] for r in rs) / len(rs) * 100
             clean_row.append(f"[dim]{passed}/{len(rs)}  ({pct:.0f}%)[/dim]")
         else:
@@ -159,6 +161,30 @@ def print_report(all_results: dict):
         comp_row.append(f"[bold]{c * 100:.1f}%[/bold]" if c is not None else "—")
     acc.add_row(*comp_row)
     console.print(acc)
+
+    surfaces = sorted({
+        r["task"].get("execution_surface")
+        for rs in all_results.values() for r in rs
+        if r["task"].get("execution_surface")
+    })
+    if surfaces:
+        surf = Table(box=box.ROUNDED, title="Accuracy by Execution Surface", show_lines=True)
+        surf.add_column("Execution Surface", style="bold", min_width=22)
+        for m in models:
+            surf.add_column(_short(m), justify="center", min_width=16)
+
+        for surface in surfaces:
+            row = [surface]
+            for m in models:
+                rs = [r for r in all_results[m] if r["task"].get("execution_surface") == surface]
+                if rs:
+                    passed = sum(1 for r in rs if result_passed(r))
+                    pct = sum(r["score"] for r in rs) / len(rs) * 100
+                    row.append(f"{passed}/{len(rs)}  ({pct:.0f}%)")
+                else:
+                    row.append("—")
+            surf.add_row(*row)
+        console.print(surf)
 
     # Performance table
     perf = Table(box=box.ROUNDED, title="Performance", show_lines=True)
@@ -276,7 +302,7 @@ def print_report(all_results: dict):
             for m in models:
                 rs = [r for r in all_results[m] if r["task"].get("difficulty", "").lower() == diff]
                 if rs:
-                    passed = sum(1 for r in rs if r["score"] >= 1.0)
+                    passed = sum(1 for r in rs if result_passed(r))
                     pct = sum(r["score"] for r in rs) / len(rs) * 100
                     row.append(f"{passed}/{len(rs)}  ({pct:.0f}%)")
                 else:
@@ -322,7 +348,14 @@ def append_jsonl(result: dict, path: Path) -> None:
         "task_version": result["task"].get("_version"),
         "task_hash": task_fingerprint(result["task"]),
         "category":  result["task"]["category"],
+        "execution_surface": result["task"].get("execution_surface"),
+        "source_signal": result["task"].get("source_signal", result["task"].get("_signal_source")),
+        "signal_snapshot": result["task"].get("_signal_snapshot"),
+        "release": result["task"].get("_release"),
+        "scoring_type": result["task"].get("scoring", {}).get("type"),
         "score":     result["score"],
+        "pass_threshold": result.get("pass_threshold"),
+        "passed": result_passed(result),
         "score_detail": result.get("score_detail", ""),
         "tps":       result.get("tps"),
         "ttft_ms":   result.get("ttft_ms"),
@@ -333,6 +366,7 @@ def append_jsonl(result: dict, path: Path) -> None:
         "avg_gpu_util":      result.get("avg_gpu_util"),
         "logprob_detail":    result.get("logprob_detail"),
         "hf_generation_config": result.get("hf_generation_config"),
+        "execution_trace": result.get("execution_trace"),
         "response_preview": (result.get("response") or "")[:200],
     }
     with path.open("a", encoding="utf-8") as f:
@@ -354,7 +388,14 @@ def save_results(all_results: dict, output_dir: str):
                 "task_version": r["task"].get("_version"),
                 "task_hash": task_fingerprint(r["task"]),
                 "category": r["task"]["category"],
+                "execution_surface": r["task"].get("execution_surface"),
+                "source_signal": r["task"].get("source_signal", r["task"].get("_signal_source")),
+                "signal_snapshot": r["task"].get("_signal_snapshot"),
+                "release": r["task"].get("_release"),
+                "scoring_type": r["task"].get("scoring", {}).get("type"),
                 "score": r["score"],
+                "pass_threshold": r.get("pass_threshold"),
+                "passed": result_passed(r),
                 "score_detail": r.get("score_detail", ""),
                 "tps": r.get("tps"),
                 "ttft_ms": r.get("ttft_ms"),
@@ -362,6 +403,7 @@ def save_results(all_results: dict, output_dir: str):
                 "completion_tokens": r.get("completion_tokens"),
                 "reasoning_tokens": r.get("reasoning_tokens"),
                 "hf_generation_config": r.get("hf_generation_config"),
+                "execution_trace": r.get("execution_trace"),
                 "response_preview": (r.get("response") or "")[:300],
             }
             for r in results
@@ -373,7 +415,8 @@ def save_results(all_results: dict, output_dir: str):
     csv_path = out / f"results_{ts}.csv"
     with open(csv_path, "w", newline="", encoding="utf-8") as f:
         w = csv.writer(f)
-        w.writerow(["model", "task_id", "task_version", "category", "score",
+        w.writerow(["model", "task_id", "task_version", "category", "execution_surface",
+                    "scoring_type", "score", "pass_threshold", "passed",
                     "tps", "ttft_ms", "total_ms", "score_detail"])
         for model, results in all_results.items():
             for r in results:
@@ -382,7 +425,11 @@ def save_results(all_results: dict, output_dir: str):
                     r["task"]["id"],
                     r["task"].get("_version", ""),
                     r["task"]["category"],
+                    r["task"].get("execution_surface", ""),
+                    r["task"].get("scoring", {}).get("type", ""),
                     r["score"],
+                    r.get("pass_threshold", ""),
+                    result_passed(r),
                     r.get("tps", ""),
                     r.get("ttft_ms", ""),
                     r.get("total_ms", ""),
@@ -450,7 +497,7 @@ def save_html_report(all_results: dict, output_dir: str):
                 html.append("<div style='color: #8b949e;'>No result</div></div>")
                 continue
             
-            score_cls = "score-pass" if r.get("score", 0) >= 1.0 else "score-fail"
+            score_cls = "score-pass" if result_passed(r) else "score-fail"
             score_text = f"Score: {r.get('score', 0):.1f}"
             if r.get("score_detail"):
                 score_text += f" ({r['score_detail'][:50]})"

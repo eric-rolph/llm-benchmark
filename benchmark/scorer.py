@@ -16,6 +16,7 @@ Scoring types:
   code_exec        — extract code block, run it, look for PASS in stdout
   logprob_choice   — compare highest-probability token against expected answer (for base models)
   pass_at_k        — run inner_type k times; score via unbiased Chen et al. 2021 estimator
+  workflow_trace   — verify JSON tool-call trace plus final mock state deterministically
   llm_judge        — CoT-then-score via a secondary LLM (enable with judge.enabled: true)
   rubric_judge     — decomposed multi-criterion rubric via LLM (XpertBench ShotJudge pattern)
 """
@@ -27,6 +28,7 @@ import sys
 import tempfile
 import unicodedata
 
+from benchmark.evaluation import annotate_pass, result_passed
 from benchmark.utils import strip_thinking
 
 
@@ -190,6 +192,7 @@ def score_response(task: dict, run_result: dict, allow_code_exec: bool = False,
         "max_score": 1.0,
         "score_detail": "",
     }
+    annotate_pass(scored)
 
     if run_result.get("error"):
         scored["score_detail"] = f"API error: {run_result['error']}"
@@ -220,6 +223,7 @@ def score_response(task: dict, run_result: dict, allow_code_exec: bool = False,
         "line_count":       _score_line_count,
         "code_exec":        _code_exec_fn,
         "logprob_choice":   _score_logprob_choice,
+        "workflow_trace":   _score_workflow_trace,
         "llm_judge":        lambda r, s: _score_llm_judge(r, s, task, judge_client, judge_model),
         "rubric_judge":     lambda r, s: _score_rubric_judge(r, s, task, judge_client, judge_model),
     }
@@ -228,7 +232,7 @@ def score_response(task: dict, run_result: dict, allow_code_exec: bool = False,
     score, detail = fn(response, scoring)
     scored["score"] = float(score) if score is not None else 0.0
     scored["score_detail"] = detail
-    return scored
+    return annotate_pass(scored)
 
 
 # ── helpers ──────────────────────────────────────────────────────────────────
@@ -265,7 +269,183 @@ def _extract_code(response: str, extract: str = "first") -> str:
     return response.strip()
 
 
+def _extract_json_value(response: str):
+    """Extract the first JSON value from a response, including fenced JSON."""
+    text = response.strip()
+    candidates = [text]
+
+    fenced = re.findall(r"```(?:json)?\s*(.*?)```", text, re.DOTALL | re.IGNORECASE)
+    candidates.extend(block.strip() for block in fenced)
+
+    for candidate in candidates:
+        try:
+            return json.loads(candidate)
+        except json.JSONDecodeError:
+            pass
+
+    decoder = json.JSONDecoder()
+    for idx, char in enumerate(text):
+        if char not in ("{", "["):
+            continue
+        try:
+            data, _ = decoder.raw_decode(text[idx:])
+            return data
+        except json.JSONDecodeError:
+            continue
+    return None
+
+
+_MISSING = object()
+
+
+def _get_path(data, dotted_path: str):
+    """Read a dotted path from dict/list data; numeric segments index lists."""
+    current = data
+    for part in dotted_path.split("."):
+        if isinstance(current, dict):
+            if part not in current:
+                return _MISSING
+            current = current[part]
+            continue
+        if isinstance(current, list):
+            try:
+                current = current[int(part)]
+            except (ValueError, IndexError):
+                return _MISSING
+            continue
+        return _MISSING
+    return current
+
+
+def _call_name(call) -> str:
+    if isinstance(call, str):
+        return call
+    if isinstance(call, dict):
+        for key in ("tool", "name", "action", "type"):
+            if call.get(key):
+                return str(call[key])
+    return ""
+
+
+def _is_subsequence(needles: list[str], haystack: list[str]) -> bool:
+    pos = 0
+    for name in haystack:
+        if pos < len(needles) and name == needles[pos]:
+            pos += 1
+    return pos == len(needles)
+
+
+def _contains_value(actual, expected) -> bool:
+    if actual is _MISSING:
+        return False
+    if isinstance(actual, str):
+        return _normalize(str(expected)) in _normalize(actual)
+    if isinstance(actual, list):
+        if isinstance(expected, list):
+            return all(item in actual for item in expected)
+        return expected in actual
+    if isinstance(actual, dict) and isinstance(expected, dict):
+        return all(actual.get(k) == v for k, v in expected.items())
+    return actual == expected
+
+
+def _matches_expected(actual, expected) -> bool:
+    if isinstance(expected, dict) and set(expected) == {"contains"}:
+        return _contains_value(actual, expected["contains"])
+    if isinstance(expected, dict) and set(expected) == {"regex"}:
+        return actual is not _MISSING and re.search(str(expected["regex"]), str(actual), re.IGNORECASE) is not None
+    return actual == expected
+
+
 # ── scorers ──────────────────────────────────────────────────────────────────
+
+def _score_workflow_trace(response: str, scoring: dict):
+    """
+    Deterministically verify a model-produced workflow trace.
+
+    Expected response shape:
+      {
+        "tool_calls": [{"tool": "read_file"}, {"tool": "edit_file"}],
+        "state": {"repo": {"tests_passed": true}}
+      }
+
+    Scoring YAML keys:
+      required_tools  — every tool name must appear at least once
+      ordered_tools   — tool names must appear as an ordered subsequence
+      forbidden_tools — tool names that must not appear
+      min_calls/max_calls — bounds on the tool call count
+      expected_state  — dotted paths under state/final_state with exact values
+      state_contains  — dotted paths under state/final_state containing a value
+    """
+    data = _extract_json_value(response)
+    if not isinstance(data, dict):
+        return 0.0, "workflow_trace: response did not contain a JSON object"
+
+    calls_field = scoring.get("calls_field", "tool_calls")
+    state_field = scoring.get("state_field", "state")
+    calls = data.get(calls_field, data.get("calls", []))
+    if not isinstance(calls, list):
+        return 0.0, f"workflow_trace: {calls_field!r} must be a list"
+
+    state = data.get(state_field, data.get("final_state", {}))
+    if state is None:
+        state = {}
+    if not isinstance(state, dict):
+        return 0.0, f"workflow_trace: {state_field!r} must be an object"
+
+    call_names = [_call_name(call) for call in calls]
+    failures: list[str] = []
+    total = 0
+    passed = 0
+
+    def check(condition: bool, failure: str) -> None:
+        nonlocal total, passed
+        total += 1
+        if condition:
+            passed += 1
+        else:
+            failures.append(failure)
+
+    if "min_calls" in scoring:
+        expected = int(scoring["min_calls"])
+        check(len(calls) >= expected, f"expected at least {expected} call(s), got {len(calls)}")
+    if "max_calls" in scoring:
+        expected = int(scoring["max_calls"])
+        check(len(calls) <= expected, f"expected at most {expected} call(s), got {len(calls)}")
+
+    for tool in scoring.get("required_tools", []):
+        check(str(tool) in call_names, f"missing required tool {tool!r}")
+
+    for tool in scoring.get("forbidden_tools", []):
+        check(str(tool) not in call_names, f"forbidden tool used: {tool!r}")
+
+    ordered = [str(tool) for tool in scoring.get("ordered_tools", [])]
+    if ordered:
+        check(_is_subsequence(ordered, call_names), f"tool order missing subsequence {ordered!r}")
+
+    for path, expected in scoring.get("expected_state", {}).items():
+        actual = _get_path(state, str(path))
+        check(
+            _matches_expected(actual, expected),
+            f"state.{path} expected {expected!r}, got {None if actual is _MISSING else actual!r}",
+        )
+
+    for path, expected in scoring.get("state_contains", {}).items():
+        actual = _get_path(state, str(path))
+        check(
+            _contains_value(actual, expected),
+            f"state.{path} did not contain {expected!r}",
+        )
+
+    if total == 0:
+        return 0.0, "workflow_trace: no checks configured"
+
+    score = passed / total
+    if not failures:
+        return 1.0, f"workflow_trace: all {total} checks passed"
+    detail = f"workflow_trace: {passed}/{total} checks passed; " + "; ".join(failures[:4])
+    return score, detail
+
 
 def _score_logprob_choice(response: str, scoring: dict):
     """
@@ -641,16 +821,17 @@ def score_pass_at_k(
                        judge_client=judge_client, judge_model=judge_model)
         for r in run_results
     ]
-    c = sum(1 for s in attempts if s["score"] >= 1.0)
+    c = sum(1 for s in attempts if result_passed(s))
     # Unbiased pass@k estimator (Chen et al. 2021).
     # When n == k this equals the binary any-pass check, but is more efficient
     # for n > k when more samples are generated than committed to.
     from math import comb as _comb
     estimate = 1.0 if (n - c) < k else 1.0 - _comb(n - c, k) / _comb(n, k)
     best = max(attempts, key=lambda s: s["score"])
-    return {
+    result = {
         **best,
         "task": task,
         "score": round(estimate, 4),
         "score_detail": f"pass@{k}: {c}/{n} attempts passed (estimate={estimate:.3f})",
     }
+    return annotate_pass(result)

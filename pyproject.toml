@@ -5,7 +5,7 @@ build-backend = "hatchling.build"
 [project]
 name = "llm-benchmark"
 version = "0.4.0"
-description = "Local-first, reproducible LLM benchmark suite with multi-backend discovery, 87 tasks, 16 scoring modes, result diffs, and arena ELO artifacts"
+description = "Local-first, reproducible LLM benchmark suite with multi-backend discovery, 104 tasks, workflow-trace scoring, result diffs, and arena ELO artifacts"
 readme = "README.md"
 license = { text = "MIT" }
 requires-python = ">=3.11"

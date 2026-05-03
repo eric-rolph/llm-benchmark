@@ -1,7 +1,7 @@
 # LLM Benchmark Suite
 
 ![Python](https://img.shields.io/badge/python-3.11%2B-blue)
-![Tasks](https://img.shields.io/badge/tasks-87-green)
+![Tasks](https://img.shields.io/badge/tasks-104-green)
 ![Backends](https://img.shields.io/badge/backends-9-orange)
 ![License](https://img.shields.io/badge/license-MIT-lightgrey)
 
@@ -9,7 +9,7 @@ Local-first, reproducible benchmarking for LLMs you run yourself.
 
 `llm-benchmark` runs deterministic task suites against local and OpenAI-compatible inference servers, then writes comparison-friendly JSON, JSONL, CSV, and optional HTML reports. It supports **LM Studio, Ollama, llama.cpp, vLLM, SGLang, TensorRT-LLM, TGI, KTransformers, and generic OpenAI-compatible backends** with automatic model discovery.
 
-Current state: **87 tasks**, **7 scored categories**, **16 scoring modes**, crash-safe resume, pass@k, LLM/rubric judging, result diffs, and pairwise arena mode with persisted ELO artifacts.
+Current state: **104 tasks**, **8 scored categories**, **19 scoring modes**, crash-safe resume, pass@k, deterministic workflow-trace checks, LLM/rubric judging, result diffs, and pairwise arena mode with persisted ELO artifacts.
 
 ---
 
@@ -17,7 +17,7 @@ Current state: **87 tasks**, **7 scored categories**, **16 scoring modes**, cras
 
 Most LLM leaderboards measure proprietary models on curated benchmarks you can't reproduce.
 This tool runs **deterministic, open tasks** against models you already have running on your own machine or on an OpenAI-compatible server you control.
-Results are built for auditability: temperature=0 by default, tolerance-based numeric scoring, strict schema validation, task hashes, versioned JSONL records, and run-to-run comparison.
+Results are built for auditability: temperature=0 by default, tolerance-based numeric scoring, strict schema validation, task hashes, versioned JSONL records, execution traces, release/signal metadata, and run-to-run comparison.
 
 ---
 
@@ -25,10 +25,10 @@ Results are built for auditability: temperature=0 by default, tolerance-based nu
 
 | Area | Current state |
 |---|---|
-| **Tasks** | 87 tasks across math, knowledge, coding, reasoning, writing, summarization, and instruction-following |
+| **Tasks** | 104 tasks across math, knowledge, coding, agentic, reasoning, writing, summarization, and instruction-following |
 | **Backends** | LM Studio, Ollama, llama.cpp, vLLM, SGLang, TensorRT-LLM, TGI, KTransformers, generic OpenAI-compatible |
-| **Scoring** | 16 scoring modes, including exact/numeric/regex/JSON checks, code execution, pass@k, logprob choice, LLM judge, and rubric judge |
-| **Reproducibility** | Task version/hash tracking, opt-in Hugging Face auto-config, dataset dry-run safety, resumable JSONL logs |
+| **Scoring** | 19 scoring modes, including exact/numeric/regex/JSON checks, code execution, workflow traces, pass@k, logprob choice, LLM judge, and rubric judge |
+| **Reproducibility** | Task version/hash tracking, release/signal metadata, opt-in Hugging Face auto-config, dataset dry-run safety, resumable JSONL logs |
 | **Outputs** | Rich console tables, JSON, CSV, crash-safe JSONL, optional HTML reports, result comparisons, arena ELO JSON |
 
 ---
@@ -41,8 +41,9 @@ Results are built for auditability: temperature=0 by default, tolerance-based nu
 | **Auto-discovery** | Probes enabled backends, enumerates all available models |
 | **HF Auto-Config** | Opt-in fetch of Hugging Face `generation_config.json` parameters for tested models |
 | **Thinking model support** | Qwen3, DeepSeek-R1 — reasoning tokens captured, clean text scored |
-| **87 tasks, 7 categories** | Math, reasoning, coding, knowledge, writing, summarization, instruction-following, including vision-language tasks folded into reasoning/writing |
-| **16 scoring types** | numeric, exact, contains, fuzzy_match, regex, json_keys, line_count, code_exec, word_count, contains_n, not_contains, ends_with, logprob_choice, pass_at_k, llm_judge, rubric_judge |
+| **104 tasks, 8 categories** | Math, reasoning, coding, agentic, knowledge, writing, summarization, instruction-following, including vision-language tasks folded into reasoning/writing |
+| **19 scoring types** | numeric, exact, contains, multi_contains, fuzzy_match, regex, json_keys, json_schema, line_count, code_exec, word_count, contains_n, not_contains, ends_with, logprob_choice, workflow_trace, pass_at_k, llm_judge, rubric_judge |
+| **Workflow trace scoring** | `workflow_trace` grades ordered tool-call traces and final mock state with deterministic checks |
 | **Few-shot examples** | Add `few_shot:` to any task YAML to inject conversation history before the prompt |
 | **pass@k coding** | `scoring.type: pass_at_k` can run n samples and estimate pass@k with the unbiased Chen et al. (2021) estimator |
 | **LLM-as-judge** | CoT-then-score protocol — enable with `judge.enabled: true` in config |
@@ -50,6 +51,7 @@ Results are built for auditability: temperature=0 by default, tolerance-based nu
 | **Result comparison** | `--compare` diffs saved JSON/JSONL runs, including model-level and task-level score movement |
 | **Arena artifacts** | `--arena` runs pairwise ELO judging and persists leaderboard + match history JSON |
 | **Task versioning** | `metadata.version` in task YAML propagates to JSONL for audit trails |
+| **Execution surfaces** | Optional `execution_surface` and `source_signal` tags produce Claw-style surface breakdowns in reports |
 | **Composite score** | Weighted cross-category score in summary table (coding/math/reasoning weighted higher) |
 | **Crash-safe results** | Incremental JSONL written after every task — restart safely |
 | **Latency histograms** | Per-category min/median/p95/max latency surfaced in summary table |
@@ -132,7 +134,7 @@ On PowerShell, `run.py` by itself will not execute from the current directory. P
 ## All Commands
 
 ```
-llm-bench                           # auto-discover + run all 87 tasks
+llm-bench                           # auto-discover + run all 104 tasks
 llm-bench --discover                # probe backends, list models, exit
 llm-bench --dry-run                 # validate task files + check backends, no inference
 llm-bench --model "qwen3:8b"        # single model (all categories)
@@ -174,13 +176,14 @@ llm-bench --dry-run
 | Category | Tasks | Scoring Method |
 |---|---|---|
 | `math` | 10 | `numeric` — extract first number, tolerance-based comparison |
-| `knowledge` | 15 | `exact` / `contains` / `numeric` |
-| `coding` | 12 | `code_exec` / `pass_at_k` — runs generated Python, looks for `PASS` in stdout |
+| `knowledge` | 18 | `exact` / `contains` / `numeric` |
+| `coding` | 15 | `code_exec` / `pass_at_k` — runs generated Python, looks for `PASS` in stdout |
+| `agentic` | 11 | `code_exec` / `json_schema` / `rubric_judge` / `workflow_trace` |
 | `reasoning` | 12 | `contains` / `exact` / `fuzzy_match` / `word_count` / `llm_judge` |
 | `writing` | 13 | `line_count` / `regex` / `word_count` |
 | `summarization` | 10 | `contains` / `line_count` / `regex` |
 | `instruction_following` | 15 | `exact` / `contains` / `word_count` / `contains_n` / `not_contains` / `ends_with` |
-| **Total** | **87** | |
+| **Total** | **104** | |
 
 ---
 
@@ -191,6 +194,7 @@ llm-bench --dry-run
 | `numeric` | Extracted number is within `tolerance` of `answer`/`value` |
 | `exact` | Stripped, lowercased response equals expected |
 | `contains` | Response contains expected substring (case-insensitive) |
+| `multi_contains` | Response satisfies all required substring groups |
 | `fuzzy_match` | Bidirectional: `answer ⊆ response` OR `response ⊆ answer` — handles valid paraphrases |
 | `contains_n` | Expected substring appears at least `min_count` times |
 | `not_contains` | None of the `forbidden` strings appear in the response |
@@ -198,9 +202,11 @@ llm-bench --dry-run
 | `word_count` | Response word count falls within `[min, max]` |
 | `regex` | Response matches `pattern` |
 | `json_keys` | Response parses as JSON and contains all `keys` |
+| `json_schema` | Response JSON satisfies lightweight object/array schema checks |
 | `line_count` | Non-empty line count equals `count` |
 | `code_exec` | Generated code block executes and prints `PASS` (needs `--allow-code-exec`) |
 | `logprob_choice` | Highest-probability one-token choice matches `answer`/`value` |
+| `workflow_trace` | JSON `tool_calls` and final `state` satisfy deterministic path/state checks |
 | `pass_at_k` | Estimates pass@k over `n`/`samples` independent attempts using `inner_type` scoring |
 | `llm_judge` | Judge LLM scores the response and returns `SCORE: N` (needs `judge.enabled: true`) |
 | `rubric_judge` | Judge LLM scores weighted criteria and returns `RUBRIC_SCORE: N` |

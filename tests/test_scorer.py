@@ -1,9 +1,10 @@
 """
-tests/test_scorer.py — unit tests for all 15 scoring types.
+tests/test_scorer.py — unit tests for scoring types.
 
 Run with:  pytest tests/test_scorer.py -v
 """
 import pytest
+import json
 from benchmark.scorer import score_response, score_pass_at_k
 
 
@@ -587,4 +588,98 @@ class TestLogprobChoice:
     def test_whitespace_stripped(self):
         s, _ = score({"type": "logprob_choice", "value": "A"}, "  A  ")
         assert s == 1.0
+
+
+# ── pass thresholds ───────────────────────────────────────────────────────────
+
+class TestPassThreshold:
+    def test_default_threshold_marks_eight_tenths_as_pass(self):
+        task = make_task({"type": "llm_judge", "criteria": "Accuracy"})
+        result = make_result("Answer.")
+
+        from unittest.mock import MagicMock
+        mock_client = MagicMock()
+        mock_client.chat.completions.create.return_value.choices[0].message.content = "SCORE: 8"
+
+        scored = score_response(task, result, judge_client=mock_client, judge_model="mock")
+
+        assert scored["score"] == pytest.approx(0.8)
+        assert scored["pass_threshold"] == pytest.approx(0.8)
+        assert scored["passed"] is True
+
+    def test_task_can_raise_pass_threshold(self):
+        task = make_task({"type": "llm_judge", "criteria": "Accuracy"})
+        task["pass_threshold"] = 0.9
+        result = make_result("Answer.")
+
+        from unittest.mock import MagicMock
+        mock_client = MagicMock()
+        mock_client.chat.completions.create.return_value.choices[0].message.content = "SCORE: 8"
+
+        scored = score_response(task, result, judge_client=mock_client, judge_model="mock")
+
+        assert scored["score"] == pytest.approx(0.8)
+        assert scored["pass_threshold"] == pytest.approx(0.9)
+        assert scored["passed"] is False
+
+
+# ── workflow_trace ────────────────────────────────────────────────────────────
+
+class TestWorkflowTrace:
+    def test_full_trace_passes_all_deterministic_checks(self):
+        payload = {
+            "tool_calls": [
+                {"tool": "read_file", "path": "benchmark/scorer.py"},
+                {"tool": "edit_file", "path": "benchmark/scorer.py"},
+                {"tool": "run_tests", "command": "pytest tests/test_scorer.py"},
+            ],
+            "state": {
+                "repo": {
+                    "tests_passed": True,
+                    "changed_files": ["benchmark/scorer.py", "tests/test_scorer.py"],
+                    "summary": "Added workflow trace scoring",
+                }
+            },
+        }
+        s, d = score(
+            {
+                "type": "workflow_trace",
+                "min_calls": 3,
+                "required_tools": ["read_file", "edit_file", "run_tests"],
+                "ordered_tools": ["read_file", "edit_file", "run_tests"],
+                "expected_state": {
+                    "repo.tests_passed": True,
+                    "repo.changed_files": {"contains": ["benchmark/scorer.py", "tests/test_scorer.py"]},
+                },
+                "state_contains": {"repo.summary": "workflow trace"},
+            },
+            json.dumps(payload),
+        )
+
+        assert s == pytest.approx(1.0)
+        assert "all" in d
+
+    def test_partial_trace_scores_fractionally(self):
+        payload = {
+            "tool_calls": [{"tool": "read_file"}, {"tool": "edit_file"}],
+            "state": {"repo": {"tests_passed": False}},
+        }
+        task = make_task(
+            {
+                "type": "workflow_trace",
+                "required_tools": ["read_file", "edit_file", "run_tests"],
+                "expected_state": {"repo.tests_passed": True},
+            }
+        )
+        scored = score_response(task, make_result(f"```json\n{json.dumps(payload)}\n```"))
+
+        assert 0.0 < scored["score"] < 1.0
+        assert scored["passed"] is False
+        assert "missing required tool" in scored["score_detail"]
+
+    def test_non_json_response_fails_clearly(self):
+        s, d = score({"type": "workflow_trace", "required_tools": ["read_file"]}, "I would read a file.")
+
+        assert s == 0.0
+        assert "JSON object" in d
 

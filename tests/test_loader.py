@@ -27,6 +27,16 @@ def test_tasks_carry_version():
     assert len(versioned) > 0, "Expected at least one task with _version from metadata"
 
 
+def test_tasks_carry_release_metadata_from_file_header():
+    """Dict-format task files can stamp tasks with release/signal metadata."""
+    tasks = load_tasks()
+    agentic = [t for t in tasks if t.get("category") == "agentic"]
+
+    assert agentic
+    assert any(t.get("_release") == "2026Q2-live-agent-slice" for t in agentic)
+    assert any(t.get("_signal_snapshot") == "2026-05-03" for t in agentic)
+
+
 # ── category filter ────────────────────────────────────────────────────────────
 
 def test_category_filter_limits_results():
