@@ -43,7 +43,7 @@ Results are built for auditability: temperature=0 by default, tolerance-based nu
 | **Thinking model support** | Qwen3, DeepSeek-R1 — reasoning tokens captured, clean text scored |
 | **104 tasks, 8 categories** | Math, reasoning, coding, agentic, knowledge, writing, summarization, instruction-following, including vision-language tasks folded into reasoning/writing |
 | **19 scoring types** | numeric, exact, contains, multi_contains, fuzzy_match, regex, json_keys, json_schema, line_count, code_exec, word_count, contains_n, not_contains, ends_with, logprob_choice, workflow_trace, pass_at_k, llm_judge, rubric_judge |
-| **Workflow trace scoring** | `workflow_trace` grades ordered tool-call traces and final mock state with deterministic checks |
+| **Workflow trace scoring** | `workflow_trace` grades ordered tool-call traces, required args, and optional replayed mock state |
 | **Few-shot examples** | Add `few_shot:` to any task YAML to inject conversation history before the prompt |
 | **pass@k coding** | `scoring.type: pass_at_k` can run n samples and estimate pass@k with the unbiased Chen et al. (2021) estimator |
 | **LLM-as-judge** | CoT-then-score protocol — enable with `judge.enabled: true` in config |
@@ -206,7 +206,7 @@ llm-bench --dry-run
 | `line_count` | Non-empty line count equals `count` |
 | `code_exec` | Generated code block executes and prints `PASS` (needs `--allow-code-exec`) |
 | `logprob_choice` | Highest-probability one-token choice matches `answer`/`value` |
-| `workflow_trace` | JSON `tool_calls` and final `state` satisfy deterministic path/state checks |
+| `workflow_trace` | JSON `tool_calls`, required args, and final or replayed `state` satisfy deterministic checks |
 | `pass_at_k` | Estimates pass@k over `n`/`samples` independent attempts using `inner_type` scoring |
 | `llm_judge` | Judge LLM scores the response and returns `SCORE: N` (needs `judge.enabled: true`) |
 | `rubric_judge` | Judge LLM scores weighted criteria and returns `RUBRIC_SCORE: N` |

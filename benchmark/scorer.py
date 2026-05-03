@@ -16,7 +16,7 @@ Scoring types:
   code_exec        — extract code block, run it, look for PASS in stdout
   logprob_choice   — compare highest-probability token against expected answer (for base models)
   pass_at_k        — run inner_type k times; score via unbiased Chen et al. 2021 estimator
-  workflow_trace   — verify JSON tool-call trace plus final mock state deterministically
+  workflow_trace   — verify JSON tool-call trace plus final/replayed mock state
   llm_judge        — CoT-then-score via a secondary LLM (enable with judge.enabled: true)
   rubric_judge     — decomposed multi-criterion rubric via LLM (XpertBench ShotJudge pattern)
 """
@@ -27,6 +27,7 @@ import subprocess
 import sys
 import tempfile
 import unicodedata
+from copy import deepcopy
 
 from benchmark.evaluation import annotate_pass, result_passed
 from benchmark.utils import strip_thinking
@@ -327,6 +328,23 @@ def _call_name(call) -> str:
     return ""
 
 
+def _call_args(call) -> dict:
+    """Return normalized tool-call arguments from common agent trace shapes."""
+    if not isinstance(call, dict):
+        return {}
+
+    for key in ("args", "arguments", "parameters"):
+        value = call.get(key)
+        if isinstance(value, dict):
+            return value
+
+    return {
+        key: value
+        for key, value in call.items()
+        if key not in {"tool", "name", "action", "type"}
+    }
+
+
 def _is_subsequence(needles: list[str], haystack: list[str]) -> bool:
     pos = 0
     for name in haystack:
@@ -357,6 +375,125 @@ def _matches_expected(actual, expected) -> bool:
     return actual == expected
 
 
+_ARG_TOKEN_RE = re.compile(r"\$args\.([A-Za-z_][A-Za-z0-9_]*)")
+
+
+def _resolve_arg_templates(value, args: dict):
+    """Resolve $args.name templates inside replay effect values."""
+    if isinstance(value, str):
+        matches = _ARG_TOKEN_RE.findall(value)
+        if not matches:
+            return value, []
+
+        missing = [name for name in matches if name not in args]
+        if missing:
+            return value, missing
+
+        full = _ARG_TOKEN_RE.fullmatch(value)
+        if full:
+            return args[full.group(1)], []
+
+        resolved = _ARG_TOKEN_RE.sub(lambda m: str(args[m.group(1)]), value)
+        return resolved, []
+
+    if isinstance(value, list):
+        resolved = []
+        missing = []
+        for item in value:
+            item_value, item_missing = _resolve_arg_templates(item, args)
+            resolved.append(item_value)
+            missing.extend(item_missing)
+        return resolved, missing
+
+    if isinstance(value, dict):
+        resolved = {}
+        missing = []
+        for key, item in value.items():
+            key_value, key_missing = _resolve_arg_templates(str(key), args)
+            item_value, item_missing = _resolve_arg_templates(item, args)
+            resolved[key_value] = item_value
+            missing.extend(key_missing)
+            missing.extend(item_missing)
+        return resolved, missing
+
+    return value, []
+
+
+def _set_path(data: dict, dotted_path: str, value) -> str | None:
+    parts = [part for part in dotted_path.split(".") if part]
+    if not parts:
+        return "empty state path"
+    current = data
+    for part in parts[:-1]:
+        if not isinstance(current, dict):
+            return f"cannot set through non-object path segment {part!r}"
+        current = current.setdefault(part, {})
+    if not isinstance(current, dict):
+        return f"cannot set state path {dotted_path!r}"
+    current[parts[-1]] = value
+    return None
+
+
+def _ensure_list_path(data: dict, dotted_path: str):
+    current = _get_path(data, dotted_path)
+    if current is not _MISSING:
+        return current if isinstance(current, list) else _MISSING
+    error = _set_path(data, dotted_path, [])
+    if error:
+        return _MISSING
+    return _get_path(data, dotted_path)
+
+
+def _replay_workflow_state(calls: list, replay: dict) -> tuple[dict, list[str]]:
+    """Derive final mock state by replaying configured tool effects."""
+    state = deepcopy(replay.get("initial_state", {}))
+    effects = replay.get("effects", {})
+    failures: list[str] = []
+
+    if not isinstance(state, dict):
+        return {}, ["workflow replay initial_state must be an object"]
+    if not isinstance(effects, dict) or not effects:
+        return state, ["workflow replay has no effects configured"]
+
+    for index, call in enumerate(calls):
+        tool = _call_name(call)
+        effect = effects.get(tool)
+        if not effect:
+            continue
+
+        args = _call_args(call)
+        missing_required = [name for name in effect.get("required_args", []) if name not in args]
+        if missing_required:
+            failures.append(f"call {index} {tool!r} missing arg(s): {missing_required}")
+            continue
+
+        for raw_path, raw_value in effect.get("set", {}).items():
+            path, missing_path = _resolve_arg_templates(str(raw_path), args)
+            value, missing_value = _resolve_arg_templates(raw_value, args)
+            missing = sorted(set(missing_path + missing_value))
+            if missing:
+                failures.append(f"call {index} {tool!r} could not resolve arg(s): {missing}")
+                continue
+            error = _set_path(state, str(path), value)
+            if error:
+                failures.append(f"call {index} {tool!r}: {error}")
+
+        for raw_path, raw_value in effect.get("append", {}).items():
+            path, missing_path = _resolve_arg_templates(str(raw_path), args)
+            value, missing_value = _resolve_arg_templates(raw_value, args)
+            missing = sorted(set(missing_path + missing_value))
+            if missing:
+                failures.append(f"call {index} {tool!r} could not resolve arg(s): {missing}")
+                continue
+            target = _ensure_list_path(state, str(path))
+            if target is _MISSING:
+                failures.append(f"call {index} {tool!r}: state.{path} is not a list")
+                continue
+            target.append(value)
+
+    return state, failures
+
+
 # ── scorers ──────────────────────────────────────────────────────────────────
 
 def _score_workflow_trace(response: str, scoring: dict):
@@ -373,7 +510,9 @@ def _score_workflow_trace(response: str, scoring: dict):
       required_tools  — every tool name must appear at least once
       ordered_tools   — tool names must appear as an ordered subsequence
       forbidden_tools — tool names that must not appear
+      required_call_args — tool calls that must include specific args
       min_calls/max_calls — bounds on the tool call count
+      replay — derive state by applying configured tool effects
       expected_state  — dotted paths under state/final_state with exact values
       state_contains  — dotted paths under state/final_state containing a value
     """
@@ -394,6 +533,13 @@ def _score_workflow_trace(response: str, scoring: dict):
         return 0.0, f"workflow_trace: {state_field!r} must be an object"
 
     call_names = [_call_name(call) for call in calls]
+    replay = scoring.get("replay")
+    replay_failures: list[str] = []
+    if replay:
+        if not isinstance(replay, dict):
+            return 0.0, "workflow_trace: replay must be an object"
+        state, replay_failures = _replay_workflow_state(calls, replay)
+
     failures: list[str] = []
     total = 0
     passed = 0
@@ -413,11 +559,27 @@ def _score_workflow_trace(response: str, scoring: dict):
         expected = int(scoring["max_calls"])
         check(len(calls) <= expected, f"expected at most {expected} call(s), got {len(calls)}")
 
+    for replay_failure in replay_failures:
+        check(False, replay_failure)
+
     for tool in scoring.get("required_tools", []):
         check(str(tool) in call_names, f"missing required tool {tool!r}")
 
     for tool in scoring.get("forbidden_tools", []):
         check(str(tool) not in call_names, f"forbidden tool used: {tool!r}")
+
+    for requirement in scoring.get("required_call_args", []):
+        tool = str(requirement.get("tool", ""))
+        expected_args = requirement.get("args", {})
+        matching_call = False
+        for call in calls:
+            if _call_name(call) != tool:
+                continue
+            args = _call_args(call)
+            if all(_matches_expected(_get_path(args, str(path)), expected) for path, expected in expected_args.items()):
+                matching_call = True
+                break
+        check(matching_call, f"missing call {tool!r} with args {expected_args!r}")
 
     ordered = [str(tool) for tool in scoring.get("ordered_tools", [])]
     if ordered:

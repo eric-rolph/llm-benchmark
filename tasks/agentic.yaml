@@ -427,11 +427,13 @@ tasks:
       open support ticket T-900 about duplicate invoice INV-77. Billing shows
       the duplicate charge is refundable. Produce ONLY a JSON object with:
         "tool_calls": an ordered list of tool calls you would make. Each call
-          must be an object with a "tool" field.
-        "state": the final verified service state.
+          must be an object with "tool" and "args" fields.
+        "state": optional notes about the final service state.
 
       The trace must show that you looked up the customer, checked billing,
       issued the refund, updated the ticket, and sent a customer email.
+      Use exact IDs in args: customer_id C-1042, ticket_id T-900, invoice_id
+      INV-77. The email call must include a body mentioning the refund.
     scoring:
       type: workflow_trace
       min_calls: 5
@@ -447,11 +449,86 @@ tasks:
         - billing.issue_refund
         - helpdesk.update_ticket
         - email.send
+      required_call_args:
+        - tool: crm.lookup_customer
+          args:
+            customer_id: C-1042
+        - tool: billing.get_invoice
+          args:
+            invoice_id: INV-77
+        - tool: billing.issue_refund
+          args:
+            invoice_id: INV-77
+        - tool: helpdesk.update_ticket
+          args:
+            ticket_id: T-900
+            status: resolved
+        - tool: email.send
+          args:
+            customer_id: C-1042
       expected_state:
-        crm.customer_id: C-1042
-        billing.invoice_id: INV-77
-        billing.refund_status: issued
-        helpdesk.ticket_id: T-900
-        helpdesk.status: resolved
+        crm.customers.C-1042.last_lookup: true
+        billing.invoices.INV-77.refund_status: issued
+        helpdesk.tickets.T-900.status: resolved
+        email.sent.0.customer_id: C-1042
       state_contains:
-        email.body: refund
+        email.sent.0.body: refund
+      replay:
+        initial_state:
+          crm:
+            customers:
+              C-1042:
+                id: C-1042
+                email: alex@example.com
+                last_lookup: false
+          billing:
+            invoices:
+              INV-77:
+                id: INV-77
+                customer_id: C-1042
+                duplicate: true
+                refund_status: eligible
+            refunds: []
+          helpdesk:
+            tickets:
+              T-900:
+                id: T-900
+                customer_id: C-1042
+                invoice_id: INV-77
+                status: open
+          email:
+            sent: []
+        effects:
+          crm.lookup_customer:
+            required_args:
+              - customer_id
+            set:
+              "crm.customers.$args.customer_id.last_lookup": true
+          billing.get_invoice:
+            required_args:
+              - invoice_id
+            set:
+              "billing.invoices.$args.invoice_id.last_lookup": true
+          billing.issue_refund:
+            required_args:
+              - invoice_id
+            set:
+              "billing.invoices.$args.invoice_id.refund_status": issued
+            append:
+              billing.refunds:
+                invoice_id: "$args.invoice_id"
+                status: issued
+          helpdesk.update_ticket:
+            required_args:
+              - ticket_id
+              - status
+            set:
+              "helpdesk.tickets.$args.ticket_id.status": "$args.status"
+          email.send:
+            required_args:
+              - customer_id
+              - body
+            append:
+              email.sent:
+                customer_id: "$args.customer_id"
+                body: "$args.body"

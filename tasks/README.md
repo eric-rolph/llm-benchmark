@@ -167,6 +167,11 @@ scoring:
   min_calls: 3
   required_tools: [read_file, edit_file, run_tests]
   ordered_tools: [read_file, edit_file, run_tests]
+  required_call_args:
+    - tool: run_tests
+      args:
+        command:
+          contains: pytest
   expected_state:
     repo.tests_passed: true
     repo.changed_files:
@@ -188,6 +193,37 @@ Expected response shape:
 
 `expected_state` uses dotted paths under `state`/`final_state`. Values are exact
 by default; use `{contains: ...}` for string/list containment.
+
+For stronger deterministic grading, add `replay:`. When replay is configured,
+the scorer ignores the model's claimed `state`, derives state from `tool_calls`,
+and runs `expected_state`/`state_contains` against the derived state.
+
+```yaml
+scoring:
+  type: workflow_trace
+  required_call_args:
+    - tool: billing.issue_refund
+      args:
+        invoice_id: INV-77
+  replay:
+    initial_state:
+      billing:
+        invoices:
+          INV-77:
+            refund_status: eligible
+    effects:
+      billing.issue_refund:
+        required_args: [invoice_id]
+        set:
+          "billing.invoices.$args.invoice_id.refund_status": issued
+        append:
+          billing.refunds:
+            invoice_id: "$args.invoice_id"
+            status: issued
+  expected_state:
+    billing.invoices.INV-77.refund_status: issued
+    billing.refunds.0.invoice_id: INV-77
+```
 
 ### `llm_judge`
 Scores subjective tasks with a configured judge model. Enable `judge.enabled: true`
