@@ -471,3 +471,87 @@ tasks:
         empty = HashRing()
         assert empty.get_node("anything") is None, "empty ring must return None"
         print("PASS")
+
+  - id: code_016
+    category: coding
+    difficulty: hard
+    description: "Word Dictionary (Trie) with wildcard search"
+    prompt: |
+      Write a Python class called `WordDictionary` that supports adding words and searching for them.
+      It should have two methods:
+        `add_word(word: str) -> None`: Adds a word to the dictionary.
+        `search(word: str) -> bool`: Returns True if the string is in the dictionary, False otherwise.
+          The search string may contain dots '.' where a dot can be matched with any letter.
+      Return only the Python code with no explanation.
+    scoring:
+      type: code_exec
+      test_code: |
+        d = WordDictionary()
+        d.add_word("bad")
+        d.add_word("dad")
+        d.add_word("mad")
+        assert d.search("pad") == False
+        assert d.search("bad") == True
+        assert d.search(".ad") == True
+        assert d.search("b..") == True
+        assert d.search("b.") == False
+        assert d.search("b...") == False
+        print("PASS")
+
+  - id: code_017
+    category: coding
+    difficulty: hard
+    description: "Miniature regular expression matching engine"
+    prompt: |
+      Write a Python function called `is_match(text: str, pattern: str) -> bool` that implements
+      regular expression matching with support for '.' and '*' where:
+        '.' Matches any single character.
+        '*' Matches zero or more of the preceding element.
+      The matching should cover the entire input string (not partial).
+      Return only the Python code with no explanation.
+    scoring:
+      type: code_exec
+      test_code: |
+        assert is_match("aa", "a") == False
+        assert is_match("aa", "a*") == True
+        assert is_match("ab", ".*") == True
+        assert is_match("aab", "c*a*b") == True
+        assert is_match("mississippi", "mis*is*p*.") == False
+        assert is_match("ab", ".*c") == False
+        print("PASS")
+
+  - id: code_018
+    category: coding
+    difficulty: hard
+    description: "Serialize and Deserialize Binary Tree"
+    prompt: |
+      Write a Python class `TreeNode` with `val`, `left`, and `right` attributes,
+      and a class `Codec` with two methods:
+        `serialize(root: TreeNode) -> str`: Encodes a tree to a single string.
+        `deserialize(data: str) -> TreeNode`: Decodes your string data to the tree.
+      The specific serialization format is up to you, as long as deserialize(serialize(root))
+      returns a tree identical to the original root.
+      Return only the Python code with no explanation.
+    scoring:
+      type: code_exec
+      test_code: |
+        root = TreeNode(1)
+        root.left = TreeNode(2)
+        root.right = TreeNode(3)
+        root.right.left = TreeNode(4)
+        root.right.right = TreeNode(5)
+        
+        c = Codec()
+        data = c.serialize(root)
+        new_root = c.deserialize(data)
+        
+        assert new_root is not None
+        assert new_root.val == 1
+        assert new_root.left.val == 2
+        assert new_root.left.left is None
+        assert new_root.left.right is None
+        assert new_root.right.val == 3
+        assert new_root.right.left.val == 4
+        assert new_root.right.right.val == 5
+        assert new_root.right.right.right is None
+        print("PASS")

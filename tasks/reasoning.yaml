@@ -116,4 +116,54 @@ tasks:
       Is Alex a knight or a knave? Reply with only 'knight' or 'knave'.
     scoring:
       type: contains
-      answer: "knave"
+      value: "knave"
+
+  - id: reason_009
+    category: reasoning
+    difficulty: hard
+    description: "Constraint satisfaction - who drinks water?"
+    prompt: |
+      There are three houses in a row: Red, Blue, and Green (from left to right).
+      Three people live in them: Alice, Bob, and Charlie.
+      Each person drinks a different beverage: Tea, Coffee, or Water.
+      Each person has a different pet: Dog, Cat, or Bird.
+      1. Alice lives in the Red house.
+      2. The person with the Dog drinks Tea.
+      3. Charlie has a Bird.
+      4. The person in the Green house drinks Coffee.
+      5. Bob lives next to the person with the Bird.
+      6. The person in the Blue house has a Cat.
+      Who drinks Water? Reply with only the person's name.
+    scoring:
+      type: contains
+      value: "bob"
+
+  - id: reason_010
+    category: reasoning
+    difficulty: hard
+    description: "Knights, Knaves, and Spies"
+    prompt: |
+      You meet three people: A, B, and C. One is a Knight (always tells the truth),
+      one is a Knave (always lies), and one is a Spy (can do either).
+      A says: "C is the Knave."
+      B says: "A is the Knight."
+      C says: "I am the Spy."
+      Reply with the roles in order for A, B, and C (e.g. 'A is the Knight, B is the Spy, C is the Knave').
+    scoring:
+      type: regex
+      pattern: "(?i)knight.*?spy.*?knave"
+
+  - id: reason_011
+    category: reasoning
+    difficulty: hard
+    description: "Chronological scheduling with constraints"
+    prompt: |
+      Six tasks (U, V, W, X, Y, Z) must be scheduled one per day from Monday to Saturday.
+      1. W must happen exactly two days after U.
+      2. Y must happen on Thursday.
+      3. X must happen before V.
+      4. Z must happen exactly three days after X.
+      On what day does V happen? Reply with only the day of the week.
+    scoring:
+      type: contains
+      value: "saturday"
