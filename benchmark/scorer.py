@@ -238,15 +238,15 @@ def score_response(task: dict, run_result: dict, allow_code_exec: bool = False,
 
 # ── helpers ──────────────────────────────────────────────────────────────────
 
-def _extract_number(text: str) -> float | None:
-    """Pull the first numeric value out of arbitrary text."""
-    text = text.replace(",", "")
-    for m in re.findall(r"-?\d+\.?\d*", text):
+def _extract_numbers(text: str) -> list[float]:
+    """All numeric values in arbitrary text, commas stripped."""
+    numbers = []
+    for m in re.findall(r"-?\d+\.?\d*", text.replace(",", "")):
         try:
-            return float(m)
+            numbers.append(float(m))
         except ValueError:
             pass
-    return None
+    return numbers
 
 
 def _extract_code(response: str, extract: str = "first") -> str:
@@ -635,15 +635,10 @@ def _score_numeric(response: str, scoring: dict):
     except (TypeError, ValueError):
         return 0.0, f"Invalid expected value: {raw!r}"
     tolerance = float(scoring.get("tolerance", 0))
-    # Collect all numbers and pick the one closest to expected — avoids
-    # false positives when the prompt itself contains a number (e.g. "Carbon-14"
-    # appearing before the real answer "5730").
-    candidates = []
-    for m in re.findall(r"-?\d+\.?\d*", response.replace(",", "")):
-        try:
-            candidates.append(float(m))
-        except ValueError:
-            pass
+    # Pick the number closest to expected — avoids false positives when the
+    # prompt itself contains a number (e.g. "Carbon-14" appearing before the
+    # real answer "5730").
+    candidates = _extract_numbers(response)
     if not candidates:
         return 0.0, f"No number found. Expected {expected}"
     got = min(candidates, key=lambda n: abs(n - expected))
@@ -669,6 +664,9 @@ def _normalize(s: str) -> str:
 def _score_contains(response: str, scoring: dict):
     raw = scoring.get("answer", scoring.get("value", ""))
     needle = _normalize(str(raw))
+    if not needle:
+        # "" is a substring of everything — a misconfigured task must not score 1.0
+        return 0.0, f"contains: empty answer/value in scoring definition ({raw!r})"
     if needle in _normalize(response):
         return 1.0, f"Contains '{raw}'"
     return 0.0, f"Missing '{raw}'"
@@ -677,6 +675,8 @@ def _score_contains(response: str, scoring: dict):
 def _score_contains_n(response: str, scoring: dict):
     raw = str(scoring.get("answer", scoring.get("value", "")))
     needle = _normalize(raw)
+    if not needle:
+        return 0.0, f"contains_n: empty answer/value in scoring definition ({raw!r})"
     min_count = int(scoring.get("min_count", 1))
     count = _normalize(response).count(needle)
     if count >= min_count:
@@ -708,7 +708,12 @@ def _score_ends_with(response: str, scoring: dict):
 def _score_fuzzy_match(response: str, scoring: dict):
     raw = str(scoring.get("answer", scoring.get("value", ""))).strip()
     answer = _normalize(raw)
+    if not answer:
+        return 0.0, f"fuzzy_match: empty answer/value in scoring definition ({raw!r})"
     resp = _normalize(response.strip())
+    if not resp:
+        # "" ⊂ answer would pass below — an empty response is a fail, not a match
+        return 0.0, "fuzzy_match: empty response"
     if answer in resp or resp in answer:
         return 1.0, f"fuzzy_match: '{raw[:60]}' ↔ response"
     return 0.0, f"fuzzy_match failed: expected '{raw[:60]}'"
@@ -725,8 +730,14 @@ def _score_word_count(response: str, scoring: dict):
 
 
 def _score_regex(response: str, scoring: dict):
-    pattern = scoring["pattern"]
-    if re.search(pattern, response, re.IGNORECASE | re.DOTALL):
+    pattern = scoring.get("pattern")
+    if not pattern:
+        return 0.0, "regex: no 'pattern' key in scoring definition"
+    try:
+        matched = re.search(pattern, response, re.IGNORECASE | re.DOTALL)
+    except re.error as e:
+        return 0.0, f"regex: invalid pattern {pattern!r}: {e}"
+    if matched:
         return 1.0, "Regex matched"
     return 0.0, f"Regex not matched: {pattern}"
 
@@ -904,6 +915,12 @@ def _score_code_exec(response: str, scoring: dict):
             tmp = f.name
 
         preexec = _set_resource_limits if _use_new_session else None
+        # Untrusted code must not inherit secrets (API keys etc.) from the
+        # benchmark process — pass a minimal whitelisted environment and run
+        # outside the repo so relative paths can't touch it.
+        _env_keep = ("PATH", "SYSTEMROOT", "SYSTEMDRIVE", "WINDIR", "COMSPEC",
+                     "PATHEXT", "TEMP", "TMP", "LANG", "LC_ALL", "PYTHONIOENCODING")
+        child_env = {k: v for k, v in os.environ.items() if k.upper() in _env_keep}
         proc = subprocess.Popen(
             [sys.executable, tmp],
             stdout=subprocess.PIPE,
@@ -911,6 +928,8 @@ def _score_code_exec(response: str, scoring: dict):
             text=True,
             start_new_session=_use_new_session,
             preexec_fn=preexec,
+            env=child_env,
+            cwd=tempfile.gettempdir(),
         )
 
         try:

@@ -81,11 +81,11 @@ class ModelRunner:
     Runs benchmark tasks against a single model via the provided Backend.
     """
 
-    def __init__(self, backend: Backend, model_id: str, bench_config: dict):
+    def __init__(self, backend: Backend, model_id: str, bench_config: dict, client=None):
         self.backend = backend
         self.model_id = model_id
         self.bench = bench_config
-        self._client = backend.get_openai_client()
+        self._client = client if client is not None else backend.get_openai_client()
         self.hf_generation_config = (
             self._fetch_hf_config(model_id)
             if self.bench.get("hf_auto_config", False)

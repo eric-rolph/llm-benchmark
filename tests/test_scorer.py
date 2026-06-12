@@ -765,3 +765,44 @@ class TestWorkflowTrace:
         assert scored["passed"] is False
         assert "missing arg" in scored["score_detail"]
 
+
+
+# ── misconfigured scoring definitions must fail loudly, not crash or pass ────
+
+class TestMisconfiguredScoring:
+    def test_regex_missing_pattern_returns_zero(self):
+        s, d = score({"type": "regex"}, "anything")
+        assert s == 0.0
+        assert "pattern" in d
+
+    def test_regex_invalid_pattern_returns_zero(self):
+        s, d = score({"type": "regex", "pattern": "(unclosed"}, "anything")
+        assert s == 0.0
+        assert "invalid pattern" in d
+
+    def test_contains_missing_answer_returns_zero(self):
+        s, d = score({"type": "contains"}, "any response")
+        assert s == 0.0
+        assert "empty answer" in d
+
+    def test_contains_empty_answer_returns_zero(self):
+        s, _ = score({"type": "contains", "value": ""}, "any response")
+        assert s == 0.0
+
+    def test_contains_n_empty_answer_returns_zero(self):
+        s, _ = score({"type": "contains_n", "min_count": 2}, "any response")
+        assert s == 0.0
+
+    def test_fuzzy_missing_answer_returns_zero(self):
+        s, d = score({"type": "fuzzy_match"}, "any response")
+        assert s == 0.0
+        assert "empty answer" in d
+
+    def test_fuzzy_empty_response_returns_zero(self):
+        s, d = score({"type": "fuzzy_match", "value": "the right answer"}, "   ")
+        assert s == 0.0
+        assert "empty response" in d
+
+    def test_contains_still_passes_when_configured(self):
+        s, _ = score({"type": "contains", "value": "Paris"}, "The capital is Paris.")
+        assert s == 1.0

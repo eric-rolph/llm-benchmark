@@ -53,9 +53,10 @@ class OllamaBackend(Backend):
         """
         Inject Ollama-specific parameters.  When a task sets "thinking: true"
         (or when enabled globally in config), pass think=True so Ollama's
-        reasoning engine is activated.
+        reasoning engine is activated.  The OpenAI SDK rejects unknown
+        top-level kwargs, so it must ride in extra_body.
         """
         params = {}
         if task.get("thinking") or self.config.get("thinking", False):
-            params["think"] = True
+            params["extra_body"] = {"think": True}
         return params
