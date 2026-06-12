@@ -119,12 +119,16 @@ run to confirm wire behavior.*
 `benchmark/backends/base.py`, `benchmark/backends/ollama.py`,
 `benchmark/reporter.py`, `tests/test_ab_thinking.py`
 
-### 4.3 Contamination audit mode
+### ✅ 4.3 Contamination audit mode
 **Lesson from SWE-bench:** Frontier models could reproduce verbatim gold
 patches from task IDs alone. OpenAI caught this by checking chain-of-thought
 for knowledge that wasn't in the problem description.  
-**Fix:** Add `--audit-contamination` mode that, for each coding task, sends
-the model *only* the task ID (not the problem) and checks if the response
-contains the expected function name and structure. A high match rate flags
-contamination. Requires judge or regex scoring.  
-**Files:** `run.py`, new `benchmark/auditor.py`
+**Fixed:** `--audit-contamination` probes each model with each code_exec
+task's *id only* (the probe never contains the problem statement — tested).
+The audit extracts the solution's identifying signals (function names the
+test harness calls, builtins excluded) and flags a task when the model
+reproduces ≥50% of them from the opaque id. Reports a per-model table
+(flagged count, claimed-unknown count, flagged task ids) and saves
+`audit_<ts>.json`. Probe-only mode — no scoring run.
+*Validated offline against a fake runner; pending a live model run.*  
+**Files:** new `benchmark/auditor.py`, `benchmark/cli.py`, `tests/test_auditor.py`

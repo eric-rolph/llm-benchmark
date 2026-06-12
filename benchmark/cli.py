@@ -31,6 +31,7 @@ Quick start (llm-bench, or python run.py from a checkout):
   llm-bench --resume                 # skip tasks already in the most recent results JSONL
   llm-bench --exclude-before 2026-06-01  # only tasks introduced on/after a date (contamination control)
   llm-bench --ab-thinking            # run each task with thinking on vs off, report the delta (Ollama)
+  llm-bench --audit-contamination    # probe models with task IDs only, flag memorised solutions
   llm-bench --judge-model qwen3:8b   # enable LLM judge with a local model (CI-friendly)
   llm-bench --judge-model gpt-4o --judge-base-url https://api.openai.com/v1 --judge-api-key sk-…
 """
@@ -127,6 +128,8 @@ def main():
                         help="Run only tasks introduced on/after this date (YYYY-MM-DD); tasks without an 'introduced' tag are excluded (contamination control)")
     parser.add_argument("--ab-thinking",    action="store_true",
                         help="Run every task twice — thinking on vs off — and report the per-model delta (backends with a thinking toggle, i.e. Ollama)")
+    parser.add_argument("--audit-contamination", action="store_true",
+                        help="Probe each model with task IDs only (no problem statements) and flag tasks whose solutions the model reproduces — no scoring run")
     # Judge CLI flags — bypass config.yaml and the interactive TTY prompt
     parser.add_argument("--judge-model",    default=None, metavar="MODEL",
                         help="Enable LLM judge with this model (bypasses interactive prompt; use a discovered model ID or an external one with --judge-base-url)")
@@ -216,6 +219,18 @@ def main():
                 seen[cat] += 1
         tasks = limited
         console.print(f"[dim]--limit {args.limit}: {len(tasks)} tasks (first {args.limit} per category)[/dim]")
+
+    # ── contamination audit: probe-only mode, no benchmark run ────────────
+    if args.audit_contamination:
+        from benchmark.auditor import audit_contamination, print_audit_report, save_audit_report
+        console.print("\n[bold]Contamination audit[/bold] — probing with task IDs only…\n")
+        report = audit_contamination(
+            all_pairs, tasks, bench_config, no_autoload=args.no_autoload
+        )
+        print_audit_report(report)
+        if report:
+            save_audit_report(report, args.output)
+        return
 
     # ── LLM judge: CLI flag > config > interactive prompt ─────────────────
     judge_client, judge_model = build_judge(args, config, all_pairs, tasks)
