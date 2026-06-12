@@ -4,7 +4,8 @@ tests/test_reporter.py — unit tests for reporter helper functions.
 Run with:  pytest tests/test_reporter.py -v
 """
 import pytest
-from benchmark.reporter import CATEGORY_WEIGHTS, _composite_score
+from benchmark.evaluation import CATEGORY_WEIGHTS
+from benchmark.reporter import _composite_score
 
 
 def make_result(category: str, score: float) -> dict:

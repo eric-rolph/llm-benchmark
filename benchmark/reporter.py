@@ -11,36 +11,11 @@ from rich import box
 from rich.table import Table
 
 from benchmark.console import make_console
-from benchmark.evaluation import result_passed
+from benchmark.evaluation import CATEGORY_WEIGHTS, E3_EXPECTED_TOKENS, result_passed
 from benchmark.result import to_record
 from benchmark.utils import _avg
 
 console = make_console()
-
-CATEGORY_WEIGHTS: dict = {
-    "coding":                1.5,
-    "math":                  1.2,
-    "reasoning":             1.2,
-    "agentic":               1.4,
-    "knowledge":             1.0,
-    "instruction_following": 1.0,
-    "summarization":         0.8,
-    "writing":               0.8,
-}
-
-# Expected reasoning-token budget per category (E3-Score baseline).
-# Derived from EffiReason-Bench: a "right-sized" model should need roughly
-# this many reasoning tokens to solve tasks in each category.
-# Non-thinking models (reasoning_tokens == 0) are excluded from E3 computation.
-_E3_EXPECTED_TOKENS: dict = {
-    "coding":                2000,
-    "math":                  600,
-    "reasoning":             600,
-    "knowledge":             200,
-    "instruction_following": 200,
-    "summarization":         400,
-    "writing":               400,
-}
 
 
 def _e3_score(score: float, reasoning_tokens: int | None, category: str) -> float | None:
@@ -53,7 +28,7 @@ def _e3_score(score: float, reasoning_tokens: int | None, category: str) -> floa
     """
     if reasoning_tokens is None or reasoning_tokens == 0:
         return None
-    expected = _E3_EXPECTED_TOKENS.get(category.lower().strip(), 500)
+    expected = E3_EXPECTED_TOKENS.get(category.lower().strip(), 500)
     actual   = max(reasoning_tokens, 1)
     return score * math.log(expected + 1) / math.log(actual + 1)
 

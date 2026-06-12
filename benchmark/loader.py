@@ -32,9 +32,10 @@ _FILE_METADATA_FIELDS = {"release", "signal_snapshot", "signal_source"}
 logger = logging.getLogger(__name__)
 
 
-def available_categories() -> list[str]:
+def available_categories(tasks_dir: str | Path | None = None) -> list[str]:
     """Category names — one per task YAML file."""
-    return sorted(p.stem for p in TASKS_DIR.glob("*.yaml"))
+    base = Path(tasks_dir) if tasks_dir else TASKS_DIR
+    return sorted(p.stem for p in base.glob("*.yaml"))
 
 
 def _validate_task(task: dict, source: str, index: int) -> None:
@@ -75,13 +76,15 @@ def load_tasks(
     category_filter: str | None = None,
     validate: bool = True,
     expand_datasets: bool = True,
+    tasks_dir: str | Path | None = None,
 ) -> list[dict]:
-    if not TASKS_DIR.exists():
-        raise FileNotFoundError(f"Tasks directory not found: {TASKS_DIR}")
+    base = Path(tasks_dir) if tasks_dir else TASKS_DIR
+    if not base.exists():
+        raise FileNotFoundError(f"Tasks directory not found: {base}")
 
     tasks: list[dict] = []
     seen_ids: dict[str, str] = {}
-    for yaml_file in sorted(TASKS_DIR.glob("*.yaml")):
+    for yaml_file in sorted(base.glob("*.yaml")):
         data = yaml.safe_load(yaml_file.read_text(encoding="utf-8"))
         # Support both a bare YAML list and a dict with a 'tasks' key
         if isinstance(data, list):

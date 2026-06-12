@@ -8,7 +8,7 @@ from rich import box
 from rich.table import Table
 
 from benchmark.console import make_console
-from benchmark.reporter import CATEGORY_WEIGHTS
+from benchmark.evaluation import CATEGORY_WEIGHTS
 from benchmark.utils import _avg
 
 console = make_console()

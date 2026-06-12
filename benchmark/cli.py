@@ -58,8 +58,21 @@ from benchmark.session import (
 console = make_console()
 
 
+def _early_tasks_dir() -> str | None:
+    """Peek at --tasks-dir before the parser exists — the --category choices
+    list depends on it, and argparse can't bootstrap itself."""
+    argv = sys.argv[1:]
+    for i, arg in enumerate(argv):
+        if arg == "--tasks-dir" and i + 1 < len(argv):
+            return argv[i + 1]
+        if arg.startswith("--tasks-dir="):
+            return arg.split("=", 1)[1]
+    return None
+
+
 def main():
-    categories = available_categories()
+    tasks_dir = _early_tasks_dir()
+    categories = available_categories(tasks_dir)
 
     parser = argparse.ArgumentParser(
         description="Automated LLM benchmark — LM Studio · Ollama · llama.cpp",
@@ -72,6 +85,8 @@ def main():
     parser.add_argument("--backend",        help="Restrict to one backend type (lm_studio | ollama | llamacpp)")
     parser.add_argument("--category",       choices=categories,      help="Run only this task category")
     parser.add_argument("--task",           help="Run only a single task by ID")
+    parser.add_argument("--tasks-dir",      default=None, metavar="DIR",
+                        help="Load tasks from this directory instead of the bundled tasks/")
     parser.add_argument("--output",         default="results",       help="Results output directory")
     parser.add_argument("--no-autoload",    action="store_true",     help="Skip LM Studio model-load attempt")
     parser.add_argument("--discover",       action="store_true",     help="Probe backends and print discovered models, then exit")
@@ -119,7 +134,7 @@ def main():
     if args.dry_run:
         console.print("\n[bold]Dry-run mode[/bold] — validating task files…")
         try:
-            tasks_all = load_tasks(validate=True, expand_datasets=False)
+            tasks_all = load_tasks(validate=True, expand_datasets=False, tasks_dir=args.tasks_dir)
             cats = sorted(set(t["category"] for t in tasks_all))
             console.print(f"  [green]✓[/green]  {len(tasks_all)} tasks loaded across {len(cats)} categories: {cats}")
         except (ValueError, FileNotFoundError) as e:
@@ -144,7 +159,7 @@ def main():
         sys.exit(1)
 
     # ── tasks ─────────────────────────────────────────────────────────────
-    tasks = load_tasks(args.category)
+    tasks = load_tasks(args.category, tasks_dir=args.tasks_dir)
     if args.task:
         tasks = [t for t in tasks if t["id"] == args.task]
         if not tasks:

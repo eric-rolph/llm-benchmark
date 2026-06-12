@@ -187,3 +187,32 @@ def test_load_tasks_can_validate_dataset_tasks_without_expanding(tmp_path, monke
 
     assert len(tasks) == 1
     assert tasks[0]["id"] == "ds_test"
+
+
+# ── explicit tasks_dir override ───────────────────────────────────────────────
+
+def test_load_tasks_accepts_explicit_tasks_dir(tmp_path):
+    (tmp_path / "custom.yaml").write_text(
+        """
+- id: custom_task
+  prompt: "Custom?"
+  category: custom
+  scoring:
+    type: exact
+    value: yes
+""".strip(),
+        encoding="utf-8",
+    )
+
+    tasks = load_tasks(tasks_dir=tmp_path)
+
+    assert [t["id"] for t in tasks] == ["custom_task"]
+
+
+def test_available_categories_accepts_explicit_tasks_dir(tmp_path):
+    from benchmark.loader import available_categories
+
+    (tmp_path / "alpha.yaml").write_text("- {}", encoding="utf-8")
+    (tmp_path / "beta.yaml").write_text("- {}", encoding="utf-8")
+
+    assert available_categories(tmp_path) == ["alpha", "beta"]

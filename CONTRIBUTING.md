@@ -157,7 +157,7 @@ Scoring types are defined in `benchmark/scorer.py`.
 - Python 3.11+, type hints on all public functions
 - No third-party dependencies beyond `openai`, `pyyaml`, `rich`, `requests`
 - Keep `benchmark/` modules import-clean (no circular deps)
-- `run.py` is the only entry point — keep it thin, logic lives in `benchmark/`
+- `run.py` is a back-compat shim over `benchmark/cli.py` (the `llm-bench` entry point) — keep both thin, logic lives in `benchmark/session.py` and friends
 
 ## Questions?
 
