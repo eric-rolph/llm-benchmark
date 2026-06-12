@@ -119,6 +119,8 @@ tasks:
       value: "knave"
 
   - id: reason_009
+
+    introduced: 2026-06-04
     category: reasoning
     difficulty: hard
     description: "Constraint satisfaction - who drinks water?"
@@ -139,6 +141,8 @@ tasks:
       value: "bob"
 
   - id: reason_010
+
+    introduced: 2026-06-04
     category: reasoning
     difficulty: hard
     description: "Knights, Knaves, and Spies"
@@ -154,6 +158,8 @@ tasks:
       pattern: "(?i)knight.*?spy.*?knave"
 
   - id: reason_011
+
+    introduced: 2026-06-04
     category: reasoning
     difficulty: hard
     description: "Chronological scheduling with constraints"

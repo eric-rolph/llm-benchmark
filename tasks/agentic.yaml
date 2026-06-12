@@ -339,6 +339,8 @@ tasks:
   # completeness, specificity, executability, and constraint adherence.
 
   - id: plan_001
+
+    introduced: 2026-04-27
     category: agentic
     difficulty: hard
     description: "Multi-step planning: Python CLI scraper → SQLite → --query flag"

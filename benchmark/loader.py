@@ -9,6 +9,7 @@ Supports two task types:
 from __future__ import annotations
 
 import logging
+from datetime import date
 from pathlib import Path
 
 import yaml
@@ -30,6 +31,31 @@ _DATASET_REQUIRED_FIELDS = {"id", "category", "dataset", "template", "scoring"}
 _FILE_METADATA_FIELDS = {"release", "signal_snapshot", "signal_source"}
 
 logger = logging.getLogger(__name__)
+
+
+def filter_introduced_since(tasks: list[dict], cutoff: date) -> list[dict]:
+    """
+    Tasks introduced on/after `cutoff`. Tasks without a parseable
+    `introduced` date count as legacy and are excluded — the point of the
+    filter is a contamination-resistant fresh subset (BACKLOG 4.1).
+    YAML parses `introduced: 2026-06-04` to a date natively; strings are
+    accepted as ISO format.
+    """
+    fresh: list[dict] = []
+    for task in tasks:
+        raw = task.get("introduced")
+        if isinstance(raw, date):
+            introduced = raw
+        elif raw:
+            try:
+                introduced = date.fromisoformat(str(raw))
+            except ValueError:
+                continue
+        else:
+            continue
+        if introduced >= cutoff:
+            fresh.append(task)
+    return fresh
 
 
 def available_categories(tasks_dir: str | Path | None = None) -> list[str]:

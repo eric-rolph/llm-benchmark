@@ -311,6 +311,8 @@ tasks:
   # contains fragments but not exact solutions to these compositions.
 
   - id: code_013
+
+    introduced: 2026-04-27
     category: coding
     difficulty: hard
     description: "Thread-safe LRU cache — stdlib only (threading.Lock + OrderedDict)"
@@ -379,6 +381,8 @@ tasks:
         print("PASS")
 
   - id: code_014
+
+    introduced: 2026-04-27
     category: coding
     difficulty: hard
     description: "Recursive descent expression parser — no eval()"
@@ -411,6 +415,8 @@ tasks:
         print("PASS")
 
   - id: code_015
+
+    introduced: 2026-04-27
     category: coding
     difficulty: hard
     description: "Consistent hashing ring with virtual nodes — stdlib only"
@@ -473,6 +479,8 @@ tasks:
         print("PASS")
 
   - id: code_016
+
+    introduced: 2026-06-04
     category: coding
     difficulty: hard
     description: "Word Dictionary (Trie) with wildcard search"
@@ -499,6 +507,8 @@ tasks:
         print("PASS")
 
   - id: code_017
+
+    introduced: 2026-06-04
     category: coding
     difficulty: hard
     description: "Miniature regular expression matching engine"
@@ -521,6 +531,8 @@ tasks:
         print("PASS")
 
   - id: code_018
+
+    introduced: 2026-06-04
     category: coding
     difficulty: hard
     description: "Serialize and Deserialize Binary Tree"

@@ -29,6 +29,7 @@ Quick start (llm-bench, or python run.py from a checkout):
   llm-bench --compare old new        # compare two saved JSON/JSONL result files
   llm-bench --limit 5                # smoke-test: first 5 tasks per category
   llm-bench --resume                 # skip tasks already in the most recent results JSONL
+  llm-bench --exclude-before 2026-06-01  # only tasks introduced on/after a date (contamination control)
   llm-bench --judge-model qwen3:8b   # enable LLM judge with a local model (CI-friendly)
   llm-bench --judge-model gpt-4o --judge-base-url https://api.openai.com/v1 --judge-api-key sk-…
 """
@@ -44,7 +45,7 @@ from benchmark.arena import run_arena, print_arena_leaderboard, save_arena_resul
 from benchmark.compare import compare_result_files
 from benchmark.console import make_console
 from benchmark.evaluation import result_passed
-from benchmark.loader import available_categories, load_tasks
+from benchmark.loader import available_categories, filter_introduced_since, load_tasks
 from benchmark.reporter import print_report, save_results, save_html_report
 from benchmark.session import (
     build_judge,
@@ -105,6 +106,8 @@ def main():
                         help="Run only the first N tasks per category (smoke test / quick iteration)")
     parser.add_argument("--resume",         action="store_true",
                         help="Skip (model, task) pairs already in the most recent results JSONL (continue interrupted run)")
+    parser.add_argument("--exclude-before", default=None, metavar="DATE",
+                        help="Run only tasks introduced on/after this date (YYYY-MM-DD); tasks without an 'introduced' tag are excluded (contamination control)")
     # Judge CLI flags — bypass config.yaml and the interactive TTY prompt
     parser.add_argument("--judge-model",    default=None, metavar="MODEL",
                         help="Enable LLM judge with this model (bypasses interactive prompt; use a discovered model ID or an external one with --judge-base-url)")
@@ -168,6 +171,20 @@ def main():
     if not tasks:
         console.print("[red]No tasks loaded. Check the tasks/ directory.[/red]")
         sys.exit(1)
+
+    # Apply --exclude-before: fresh-task subset for contamination control
+    if args.exclude_before:
+        try:
+            cutoff = datetime.date.fromisoformat(args.exclude_before)
+        except ValueError:
+            console.print(f"[red]--exclude-before expects YYYY-MM-DD, got {args.exclude_before!r}.[/red]")
+            sys.exit(1)
+        total = len(tasks)
+        tasks = filter_introduced_since(tasks, cutoff)
+        console.print(f"[dim]--exclude-before {cutoff}: {len(tasks)}/{total} task(s) introduced on/after the cutoff[/dim]")
+        if not tasks:
+            console.print("[red]No tasks introduced on/after the cutoff. Tag tasks with 'introduced: YYYY-MM-DD'.[/red]")
+            sys.exit(1)
 
     # Apply --limit: keep only first N tasks per category
     if args.limit:

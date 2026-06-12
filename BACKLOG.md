@@ -87,13 +87,18 @@ missing — the interactive path already used `os.environ`).
 
 ## Tier 4 — Longer term
 
-### 4.1 Task freshness / rotating pool
+### ✅ 4.1 Task freshness / rotating pool
 **Lesson from SWE-bench Pro:** Fixed task sets become contaminated over time
 as they appear in fine-tuning datasets and blog posts. SWE-bench Pro rotates
 ~300 problems to prevent memorisation.  
-**Fix (when scale warrants it):** Tag tasks with a `introduced` date. Add a
-`--exclude-before DATE` flag that runs only tasks introduced after a given
-date, making it easy to create a "fresh" subset as the suite grows.
+**Fixed:** Tasks carry an `introduced: YYYY-MM-DD` field (tagged the
+2026-04-27 batch — code_013–015, plan_001, post_cutoff_* — and the
+2026-06-04 batch — code_016–018, reason_009–011 — from git history).
+`--exclude-before DATE` runs only tasks introduced on/after the cutoff;
+untagged legacy tasks are excluded so the subset stays contamination-resistant.
+Tag every new task going forward.  
+**Files:** `benchmark/loader.py` (`filter_introduced_since`), `benchmark/cli.py`,
+`tasks/coding.yaml`, `tasks/reasoning.yaml`, `tasks/knowledge.yaml`, `tasks/agentic.yaml`
 
 ### 4.2 Harness-controlled thinking mode A/B
 **Lesson from SWE-bench scaffolding finding:** The same model scored 69% vs

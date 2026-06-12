@@ -216,3 +216,36 @@ def test_available_categories_accepts_explicit_tasks_dir(tmp_path):
     (tmp_path / "beta.yaml").write_text("- {}", encoding="utf-8")
 
     assert available_categories(tmp_path) == ["alpha", "beta"]
+
+
+# ── introduced-date freshness filter (BACKLOG 4.1) ───────────────────────────
+
+def test_filter_introduced_since_keeps_only_fresh_tasks():
+    from datetime import date
+    from benchmark.loader import filter_introduced_since
+
+    tasks = [
+        {"id": "old", "introduced": date(2026, 1, 1)},
+        {"id": "boundary", "introduced": date(2026, 6, 1)},
+        {"id": "fresh", "introduced": "2026-06-04"},   # ISO string also accepted
+        {"id": "untagged"},                             # legacy -> excluded
+        {"id": "garbage", "introduced": "not-a-date"},  # unparseable -> excluded
+    ]
+
+    fresh = filter_introduced_since(tasks, date(2026, 6, 1))
+
+    assert [t["id"] for t in fresh] == ["boundary", "fresh"]
+
+
+def test_real_task_files_carry_introduced_dates():
+    """The 2026-04/06 task batches are tagged; YAML parses the dates natively."""
+    from datetime import date
+    from benchmark.loader import filter_introduced_since
+
+    tasks = load_tasks(validate=True, expand_datasets=False)
+    fresh = filter_introduced_since(tasks, date(2026, 6, 1))
+    fresh_ids = {t["id"] for t in fresh}
+
+    assert {"code_016", "code_017", "code_018",
+            "reason_009", "reason_010", "reason_011"} <= fresh_ids
+    assert "code_013" not in fresh_ids  # introduced 2026-04-27, before cutoff

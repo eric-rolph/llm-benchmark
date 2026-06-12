@@ -138,6 +138,8 @@
 # for models without recent data; it signals knowledge staleness, not poor reasoning.
 
 - id: post_cutoff_president_47
+
+  introduced: 2026-04-27
   category: knowledge
   difficulty: hard
   description: "Post-cutoff: 47th US President (January 2025)"
@@ -149,6 +151,8 @@
     value: "trump"
 
 - id: post_cutoff_deepseek_r1
+
+  introduced: 2026-04-27
   category: knowledge
   difficulty: hard
   description: "Post-cutoff: DeepSeek-R1 open-weight reasoning model (January 2025)"
@@ -161,6 +165,8 @@
     value: "deepseek"
 
 - id: post_cutoff_super_bowl_lix
+
+  introduced: 2026-04-27
   category: knowledge
   difficulty: hard
   description: "Post-cutoff: Super Bowl LIX winner (February 2025)"
