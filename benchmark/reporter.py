@@ -320,6 +320,55 @@ def append_jsonl(result: dict, path: Path) -> None:
     with path.open("a", encoding="utf-8") as f:
         f.write(json.dumps(to_record(result)) + "\n")
 
+def _pair_ab_results(all_results: dict) -> dict:
+    """Group ' [think]' / ' [no-think]' arm labels back to their base model.
+    Returns {base_model: {"on": results, "off": results}} for complete pairs."""
+    arms: dict = {}
+    for label, results in all_results.items():
+        if label.endswith(" [think]"):
+            arms.setdefault(label[: -len(" [think]")], {})["on"] = results
+        elif label.endswith(" [no-think]"):
+            arms.setdefault(label[: -len(" [no-think]")], {})["off"] = results
+    return {base: pair for base, pair in arms.items() if "on" in pair and "off" in pair}
+
+
+def print_ab_thinking_summary(all_results: dict):
+    """Per-model thinking-vs-no-thinking delta (--ab-thinking)."""
+    pairs = _pair_ab_results(all_results)
+    if not pairs:
+        return
+
+    t = Table(box=box.ROUNDED, title="Thinking A/B — harness-controlled", show_lines=True)
+    t.add_column("Model", style="bold")
+    t.add_column("Score (think)", justify="center")
+    t.add_column("Score (no-think)", justify="center")
+    t.add_column("Δ Score", justify="center")
+    t.add_column("Think Tokens", justify="center")
+    t.add_column("Δ Total ms", justify="center")
+
+    for base, pair in pairs.items():
+        on, off = pair["on"], pair["off"]
+        score_on = _avg([r["score"] for r in on]) or 0.0
+        score_off = _avg([r["score"] for r in off]) or 0.0
+        delta = score_on - score_off
+        delta_style = "green" if delta > 0 else ("red" if delta < 0 else "dim")
+        think_tokens = _avg([r.get("reasoning_tokens") for r in on])
+        ms_on = _avg([r.get("total_ms") for r in on])
+        ms_off = _avg([r.get("total_ms") for r in off])
+        ms_delta = (
+            f"{ms_on - ms_off:+.0f}" if ms_on is not None and ms_off is not None else "—"
+        )
+        t.add_row(
+            base,
+            f"{score_on * 100:.1f}%",
+            f"{score_off * 100:.1f}%",
+            f"[{delta_style}]{delta * 100:+.1f}%[/{delta_style}]",
+            f"{think_tokens:.0f}" if think_tokens is not None else "—",
+            ms_delta,
+        )
+    console.print(t)
+
+
 def save_results(all_results: dict, output_dir: str):
     out = Path(output_dir)
     out.mkdir(exist_ok=True)

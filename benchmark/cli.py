@@ -30,6 +30,7 @@ Quick start (llm-bench, or python run.py from a checkout):
   llm-bench --limit 5                # smoke-test: first 5 tasks per category
   llm-bench --resume                 # skip tasks already in the most recent results JSONL
   llm-bench --exclude-before 2026-06-01  # only tasks introduced on/after a date (contamination control)
+  llm-bench --ab-thinking            # run each task with thinking on vs off, report the delta (Ollama)
   llm-bench --judge-model qwen3:8b   # enable LLM judge with a local model (CI-friendly)
   llm-bench --judge-model gpt-4o --judge-base-url https://api.openai.com/v1 --judge-api-key sk-…
 """
@@ -46,7 +47,7 @@ from benchmark.compare import compare_result_files
 from benchmark.console import make_console
 from benchmark.evaluation import result_passed
 from benchmark.loader import available_categories, filter_introduced_since, load_tasks
-from benchmark.reporter import print_report, save_results, save_html_report
+from benchmark.reporter import print_ab_thinking_summary, print_report, save_results, save_html_report
 from benchmark.session import (
     build_judge,
     discover_models,
@@ -69,6 +70,22 @@ def _early_tasks_dir() -> str | None:
         if arg.startswith("--tasks-dir="):
             return arg.split("=", 1)[1]
     return None
+
+
+def _print_model_summary(model_results: list[dict]) -> None:
+    passed    = sum(1 for r in model_results if result_passed(r))
+    tps_vals  = [r["tps"] for r in model_results if r.get("tps")]
+    tok_vals  = [r["completion_tokens"] for r in model_results if r.get("completion_tokens")]
+    avg_tps   = sum(tps_vals) / len(tps_vals) if tps_vals else 0
+    avg_tok   = sum(tok_vals) / len(tok_vals) if tok_vals else None
+    score_pct = passed / len(model_results) * 100 if model_results else 0
+    tok_str   = f"  Avg Tokens: {avg_tok:.0f}" if avg_tok else ""
+    console.print(
+        f"\n  [bold]Score: {passed}/{len(model_results)} "
+        f"({score_pct:.0f}%)  "
+        f"Avg TPS: {avg_tps:.1f}"
+        f"{tok_str}[/bold]\n"
+    )
 
 
 def main():
@@ -108,6 +125,8 @@ def main():
                         help="Skip (model, task) pairs already in the most recent results JSONL (continue interrupted run)")
     parser.add_argument("--exclude-before", default=None, metavar="DATE",
                         help="Run only tasks introduced on/after this date (YYYY-MM-DD); tasks without an 'introduced' tag are excluded (contamination control)")
+    parser.add_argument("--ab-thinking",    action="store_true",
+                        help="Run every task twice — thinking on vs off — and report the per-model delta (backends with a thinking toggle, i.e. Ollama)")
     # Judge CLI flags — bypass config.yaml and the interactive TTY prompt
     parser.add_argument("--judge-model",    default=None, metavar="MODEL",
                         help="Enable LLM judge with this model (bypasses interactive prompt; use a discovered model ID or an external one with --judge-base-url)")
@@ -252,38 +271,46 @@ def main():
     console.print(f"[dim]Streaming results → {jsonl_path}[/dim]\n")
 
     for model_info, backend in all_pairs:
-        label = f"{model_info.id}  [dim]({backend.name})[/dim]"
-        console.rule(f"[bold cyan]{label}[/bold cyan]")
+        ab_capable = getattr(backend, "supports_thinking_ab", False)
+        if args.ab_thinking and not ab_capable:
+            console.print(
+                f"[yellow]--ab-thinking: {backend.name} has no thinking toggle — "
+                f"running {model_info.id} once, without arms.[/yellow]"
+            )
+        if args.ab_thinking and ab_capable:
+            arms = [(" [think]", True), (" [no-think]", False)]
+        else:
+            arms = [("", None)]
 
-        model_results = run_model(
-            model_info=model_info,
-            backend=backend,
-            tasks=tasks,
-            bench_config=bench_config,
-            cached_records=cached_records,
-            jsonl_path=jsonl_path,
-            allow_code_exec=args.allow_code_exec,
-            no_autoload=args.no_autoload,
-            judge_client=judge_client,
-            judge_model=judge_model,
-        )
-        all_results[model_info.id] = model_results
+        for arm_suffix, think_value in arms:
+            run_label = f"{model_info.id}{arm_suffix}"
+            arm_tasks = (
+                tasks if think_value is None
+                else [dict(t, thinking=think_value) for t in tasks]
+            )
+            label = f"{run_label}  [dim]({backend.name})[/dim]"
+            console.rule(f"[bold cyan]{label}[/bold cyan]")
 
-        passed    = sum(1 for r in model_results if result_passed(r))
-        tps_vals  = [r["tps"] for r in model_results if r.get("tps")]
-        tok_vals  = [r["completion_tokens"] for r in model_results if r.get("completion_tokens")]
-        avg_tps   = sum(tps_vals) / len(tps_vals) if tps_vals else 0
-        avg_tok   = sum(tok_vals) / len(tok_vals) if tok_vals else None
-        score_pct = passed / len(model_results) * 100 if model_results else 0
-        tok_str   = f"  Avg Tokens: {avg_tok:.0f}" if avg_tok else ""
-        console.print(
-            f"\n  [bold]Score: {passed}/{len(model_results)} "
-            f"({score_pct:.0f}%)  "
-            f"Avg TPS: {avg_tps:.1f}"
-            f"{tok_str}[/bold]\n"
-        )
+            model_results = run_model(
+                model_info=model_info,
+                backend=backend,
+                tasks=arm_tasks,
+                bench_config=bench_config,
+                cached_records=cached_records,
+                jsonl_path=jsonl_path,
+                allow_code_exec=args.allow_code_exec,
+                no_autoload=args.no_autoload,
+                judge_client=judge_client,
+                judge_model=judge_model,
+                result_label=run_label if arm_suffix else None,
+            )
+            all_results[run_label] = model_results
+
+            _print_model_summary(model_results)
 
     print_report(all_results)
+    if args.ab_thinking:
+        print_ab_thinking_summary(all_results)
     save_results(all_results, args.output)
     if args.html_report:
         save_html_report(all_results, args.output)

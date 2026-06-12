@@ -100,16 +100,24 @@ Tag every new task going forward.
 **Files:** `benchmark/loader.py` (`filter_introduced_since`), `benchmark/cli.py`,
 `tasks/coding.yaml`, `tasks/reasoning.yaml`, `tasks/knowledge.yaml`, `tasks/agentic.yaml`
 
-### 4.2 Harness-controlled thinking mode A/B
+### ✅ 4.2 Harness-controlled thinking mode A/B
 **Lesson from SWE-bench scaffolding finding:** The same model scored 69% vs
 81% depending on whether an agent harness was used — a 12-point
 infrastructure gap. Our thinking models get internal "scaffolding" from
 chain-of-thought but we don't isolate it.  
-**Fix:** For Ollama (which supports `think=true/false`), run each task twice
-when `--ab-thinking` is set and report both scores. This makes the
-thinking-vs-no-thinking delta visible per model, similar to what E3 captures
-but more direct.  
-**Files:** `run.py`, `benchmark/backends/ollama.py`, `benchmark/reporter.py`
+**Fixed:** `--ab-thinking` runs every task twice per model — `[think]` and
+`[no-think]` arms appear as sibling columns in every existing table, plus a
+dedicated "Thinking A/B" delta table (Δ score, think tokens, Δ latency).
+An explicit task-level `thinking` value now wins over config in the Ollama
+backend and `think=false` is sent on the wire (thinking models default to
+on). Backends declare `supports_thinking_ab`; unsupported backends run a
+single arm with a warning. Arms can't collide in the resume cache — the
+label and the task fingerprint both differ.  
+*Validated offline against the fake-client harness; pending one live Ollama
+run to confirm wire behavior.*  
+**Files:** `benchmark/cli.py`, `benchmark/session.py`,
+`benchmark/backends/base.py`, `benchmark/backends/ollama.py`,
+`benchmark/reporter.py`, `tests/test_ab_thinking.py`
 
 ### 4.3 Contamination audit mode
 **Lesson from SWE-bench:** Frontier models could reproduce verbatim gold

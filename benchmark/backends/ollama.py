@@ -15,6 +15,8 @@ from benchmark.backends.base import Backend, ModelInfo
 
 class OllamaBackend(Backend):
 
+    supports_thinking_ab = True
+
     def is_available(self) -> bool:
         try:
             r = requests.get(f"{self._api_root()}/api/tags", timeout=3)
@@ -51,12 +53,16 @@ class OllamaBackend(Backend):
 
     def get_extra_chat_params(self, task: dict) -> dict:
         """
-        Inject Ollama-specific parameters.  When a task sets "thinking: true"
-        (or when enabled globally in config), pass think=True so Ollama's
-        reasoning engine is activated.  The OpenAI SDK rejects unknown
-        top-level kwargs, so it must ride in extra_body.
+        Inject Ollama-specific parameters.  An explicit task-level "thinking"
+        value wins over config and is always sent — thinking models default
+        to thinking unless told otherwise, so the --ab-thinking off-arm needs
+        think=False on the wire.  Without a task value, config "thinking: true"
+        enables it.  The OpenAI SDK rejects unknown top-level kwargs, so the
+        param must ride in extra_body.
         """
         params = {}
-        if task.get("thinking") or self.config.get("thinking", False):
+        if "thinking" in task:
+            params["extra_body"] = {"think": bool(task["thinking"])}
+        elif self.config.get("thinking", False):
             params["extra_body"] = {"think": True}
         return params

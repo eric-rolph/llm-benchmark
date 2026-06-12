@@ -228,12 +228,19 @@ def run_model(
     no_autoload: bool,
     judge_client,
     judge_model: str | None,
+    result_label: str | None = None,
 ) -> list[dict]:
-    """Run all tasks for one model and return the list of scored results."""
+    """
+    Run all tasks for one model and return the list of scored results.
+    result_label: how results/records identify this run (defaults to the
+    model id) — --ab-thinking uses it to keep its two arms separate while
+    still calling the API with the real model id.
+    """
+    label = result_label or model_info.id
     runner = None
     model_results: list = []
     for task in tasks:
-        key = cache_key(model_info.id, task)
+        key = cache_key(label, task)
         if key in cached_records:
             console.print(f"  [dim]↩  {task['id']:40s}  (cached — skipped)[/dim]")
             model_results.append(from_record(task, cached_records[key]))
@@ -287,7 +294,7 @@ def run_model(
                     )
                     annotate_pass(scored)
 
-        scored["model_id"] = model_info.id
+        scored["model_id"] = label
         model_results.append(scored)
         print_task_result(scored)
         append_jsonl(scored, jsonl_path)

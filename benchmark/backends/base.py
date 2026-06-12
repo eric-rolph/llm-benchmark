@@ -38,6 +38,10 @@ class Backend(ABC):
       • optionally ensure a model is loaded before first use
     """
 
+    # True when the backend honors an explicit per-request thinking toggle
+    # (used by --ab-thinking to run each task with thinking on vs off).
+    supports_thinking_ab: bool = False
+
     def __init__(self, config: dict):
         self.config = config
         self.name: str = config.get("name", self.__class__.__name__)
