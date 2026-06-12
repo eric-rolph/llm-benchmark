@@ -4,6 +4,7 @@ import json
 import math
 import statistics
 from datetime import datetime
+from html import escape
 from pathlib import Path
 
 from rich import box
@@ -11,7 +12,8 @@ from rich.table import Table
 
 from benchmark.console import make_console
 from benchmark.evaluation import result_passed
-from benchmark.utils import _avg, task_fingerprint
+from benchmark.result import to_record
+from benchmark.utils import _avg
 
 console = make_console()
 
@@ -198,7 +200,7 @@ def print_report(all_results: dict):
         ("Avg Total (ms)",     lambda rs: _avg([r.get("total_ms") for r in rs])),
         ("Avg Output Tokens",  lambda rs: _avg([r.get("completion_tokens") for r in rs])),
         ("Avg Think Tokens",   lambda rs: _avg([r.get("reasoning_tokens") for r in rs])),
-        ("Peak VRAM (MB)",     lambda rs: max([r.get("peak_vram_mb", 0) for r in rs] + [0]) or None),
+        ("Peak VRAM (MB)",     lambda rs: max([r.get("peak_vram_mb") or 0 for r in rs] + [0]) or None),
         ("Avg GPU Util (%)",   lambda rs: _avg([r.get("avg_gpu_util") for r in rs if r.get("avg_gpu_util") is not None])),
     ]
     for label, fn in metrics:
@@ -340,74 +342,19 @@ def append_jsonl(result: dict, path: Path) -> None:
     Safe to call after every task so a mid-run crash loses no results.
     """
     path.parent.mkdir(parents=True, exist_ok=True)
-    record = {
-        "model_id":  result.get("model_id", "?"),
-        "model":     result.get("model_id", "?"),
-        "backend":   result.get("backend", "?"),
-        "task_id":   result["task"]["id"],
-        "task_version": result["task"].get("_version"),
-        "task_hash": task_fingerprint(result["task"]),
-        "category":  result["task"]["category"],
-        "execution_surface": result["task"].get("execution_surface"),
-        "source_signal": result["task"].get("source_signal", result["task"].get("_signal_source")),
-        "signal_snapshot": result["task"].get("_signal_snapshot"),
-        "release": result["task"].get("_release"),
-        "scoring_type": result["task"].get("scoring", {}).get("type"),
-        "score":     result["score"],
-        "pass_threshold": result.get("pass_threshold"),
-        "passed": result_passed(result),
-        "score_detail": result.get("score_detail", ""),
-        "tps":       result.get("tps"),
-        "ttft_ms":   result.get("ttft_ms"),
-        "total_ms":  result.get("total_ms"),
-        "completion_tokens": result.get("completion_tokens"),
-        "reasoning_tokens":  result.get("reasoning_tokens"),
-        "peak_vram_mb":      result.get("peak_vram_mb"),
-        "avg_gpu_util":      result.get("avg_gpu_util"),
-        "logprob_detail":    result.get("logprob_detail"),
-        "hf_generation_config": result.get("hf_generation_config"),
-        "execution_trace": result.get("execution_trace"),
-        "response_preview": (result.get("response") or "")[:200],
-    }
     with path.open("a", encoding="utf-8") as f:
-        f.write(json.dumps(record) + "\n")
+        f.write(json.dumps(to_record(result)) + "\n")
 
 def save_results(all_results: dict, output_dir: str):
     out = Path(output_dir)
     out.mkdir(exist_ok=True)
     ts = datetime.now().strftime("%Y%m%d_%H%M%S")
 
-    # JSON — full detail
+    # JSON — full detail (same record shape as the JSONL stream)
     json_path = out / f"results_{ts}.json"
     payload: dict = {}
     for model, results in all_results.items():
-        payload[model] = [
-            {
-                "model_id": model,
-                "task_id": r["task"]["id"],
-                "task_version": r["task"].get("_version"),
-                "task_hash": task_fingerprint(r["task"]),
-                "category": r["task"]["category"],
-                "execution_surface": r["task"].get("execution_surface"),
-                "source_signal": r["task"].get("source_signal", r["task"].get("_signal_source")),
-                "signal_snapshot": r["task"].get("_signal_snapshot"),
-                "release": r["task"].get("_release"),
-                "scoring_type": r["task"].get("scoring", {}).get("type"),
-                "score": r["score"],
-                "pass_threshold": r.get("pass_threshold"),
-                "passed": result_passed(r),
-                "score_detail": r.get("score_detail", ""),
-                "tps": r.get("tps"),
-                "ttft_ms": r.get("ttft_ms"),
-                "total_ms": r.get("total_ms"),
-                "completion_tokens": r.get("completion_tokens"),
-                "reasoning_tokens": r.get("reasoning_tokens"),
-                "hf_generation_config": r.get("hf_generation_config"),
-                "execution_trace": r.get("execution_trace"),
-                "response_preview": (r.get("response") or "")[:300],
-            }
-            for r in results
-        ]
+        payload[model] = [to_record(r) for r in results]
     json_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
     console.print(f"\nJSON → [cyan]{json_path}[/cyan]")
 
@@ -484,15 +431,15 @@ def save_html_report(all_results: dict, output_dir: str):
         task = data["task"]
         html.append(f"<div class='task-card'>")
         html.append(f"<div class='task-header'>")
-        html.append(f"<h2 class='task-title'><span class='task-category'>{task.get('category', 'misc')}</span>{task_id}</h2>")
-        html.append(f"<div class='prompt'>{task.get('prompt', '').replace('<', '&lt;').replace('>', '&gt;')}</div>")
+        html.append(f"<h2 class='task-title'><span class='task-category'>{escape(task.get('category', 'misc'))}</span>{escape(task_id)}</h2>")
+        html.append(f"<div class='prompt'>{escape(task.get('prompt', ''))}</div>")
         html.append("</div>")
         html.append("<div class='grid'>")
         
         for model in models:
             r = data["results"].get(model)
             html.append("<div class='col'>")
-            html.append(f"<h3 class='model-name'>{model}</h3>")
+            html.append(f"<h3 class='model-name'>{escape(model)}</h3>")
             if not r:
                 html.append("<div style='color: #8b949e;'>No result</div></div>")
                 continue
@@ -503,16 +450,16 @@ def save_html_report(all_results: dict, output_dir: str):
                 score_text += f" ({r['score_detail'][:50]})"
                 
             html.append("<div class='metrics'>")
-            html.append(f"<span class='metric {score_cls}'>{score_text}</span>")
+            html.append(f"<span class='metric {score_cls}'>{escape(score_text)}</span>")
             if r.get("tps"): html.append(f"<span class='metric'>{r['tps']:.1f} t/s</span>")
             if r.get("ttft_ms"): html.append(f"<span class='metric'>{r['ttft_ms']:.0f}ms ttft</span>")
             html.append("</div>")
             
             if r.get("reasoning_preview"):
-                reasoning = r["reasoning_preview"].replace("<", "&lt;").replace(">", "&gt;")
+                reasoning = escape(r["reasoning_preview"])
                 html.append(f"<div class='reasoning'><strong>Reasoning:</strong><br>{reasoning}</div>")
-                
-            response = str(r.get("response", "")).replace("<", "&lt;").replace(">", "&gt;")
+
+            response = escape(str(r.get("response", "")))
             html.append(f"<div class='response'>{response}</div>")
             html.append("</div>")
             

@@ -1,8 +1,11 @@
+import json
 from dataclasses import dataclass
 
 import pytest
 
-import run
+from benchmark import session
+from benchmark.reporter import append_jsonl
+from benchmark.result import cache_key, record_cache_key
 
 
 @dataclass
@@ -30,16 +33,36 @@ def test_resume_cache_key_changes_when_task_content_changes():
     original = _task()
     changed = _task(scoring={"type": "exact", "value": "B"})
 
-    assert run._cache_key("model-a", original) != run._cache_key("model-a", changed)
+    assert cache_key("model-a", original) != cache_key("model-a", changed)
 
 
 def test_resume_cache_key_includes_task_version():
-    assert run._cache_key("model-a", _task(_version=1)) != run._cache_key("model-a", _task(_version=2))
+    assert cache_key("model-a", _task(_version=1)) != cache_key("model-a", _task(_version=2))
+
+
+@pytest.mark.parametrize("updates", [{}, {"_version": 2}], ids=["versionless", "versioned"])
+def test_resume_key_survives_jsonl_round_trip(tmp_path, updates):
+    """Records written by the real append_jsonl must hydrate to the same key
+    cache_key produces — a hand-built dict can't catch json null → "None"."""
+    task = _task(**updates)
+    result = {
+        "task": task,
+        "model_id": "model-a",
+        "backend": "dummy",
+        "score": 1.0,
+        "pass_threshold": 0.99,
+        "response": "A",
+    }
+    jsonl_path = tmp_path / "results.jsonl"
+    append_jsonl(result, jsonl_path)
+
+    record = json.loads(jsonl_path.read_text(encoding="utf-8"))
+    assert record_cache_key(record) == cache_key("model-a", task)
 
 
 def test_run_model_hydrates_fully_cached_results_without_runner(monkeypatch, tmp_path):
     task = _task()
-    key = run._cache_key("model-a", task)
+    key = cache_key("model-a", task)
     record = {
         "model_id": "model-a",
         "backend": "dummy",
@@ -55,9 +78,9 @@ def test_run_model_hydrates_fully_cached_results_without_runner(monkeypatch, tmp
     def fail_model_runner(*args, **kwargs):
         raise AssertionError("cached resume should not instantiate ModelRunner")
 
-    monkeypatch.setattr(run, "ModelRunner", fail_model_runner)
+    monkeypatch.setattr(session, "ModelRunner", fail_model_runner)
 
-    results = run._run_model(
+    results = session.run_model(
         model_info=DummyModel(),
         backend=DummyBackend(),
         tasks=[task],
@@ -112,10 +135,10 @@ def test_pass_at_k_uses_samples_count_when_larger_than_k(monkeypatch, tmp_path):
                 ],
             ]
 
-    monkeypatch.setattr(run, "ModelRunner", FakeRunner)
+    monkeypatch.setattr(session, "ModelRunner", FakeRunner)
     task = _task(scoring={"type": "pass_at_k", "inner_type": "contains", "value": "pass", "k": 2, "n": 5})
 
-    results = run._run_model(
+    results = session.run_model(
         model_info=DummyModel(),
         backend=DummyBackend(),
         tasks=[task],

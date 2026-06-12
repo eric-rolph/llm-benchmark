@@ -46,11 +46,11 @@ Issues   = "https://github.com/eric-rolph/llm-benchmark/issues"
 
 [tool.hatch.build.targets.wheel]
 packages = ["benchmark"]
-artifacts = ["tasks/*.yaml"]
 
+# Task YAMLs live at the repo root for editing convenience but install
+# inside the package, so the wheel adds nothing to the site-packages root.
 [tool.hatch.build.targets.wheel.force-include]
-"run.py" = "run.py"
-"tasks" = "tasks"
+"tasks" = "benchmark/tasks"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

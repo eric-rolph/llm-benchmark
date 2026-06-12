@@ -13,7 +13,15 @@ from pathlib import Path
 
 import yaml
 
-TASKS_DIR = Path(__file__).parent.parent / "tasks"
+def _default_tasks_dir() -> Path:
+    """Repo checkout keeps tasks/ next to benchmark/; the installed wheel
+    ships them inside the package as benchmark/tasks."""
+    repo = Path(__file__).resolve().parent.parent / "tasks"
+    pkg = Path(__file__).resolve().parent / "tasks"
+    return repo if repo.exists() else pkg
+
+
+TASKS_DIR = _default_tasks_dir()
 
 _REQUIRED_FIELDS = {"id", "prompt", "category", "scoring"}
 
@@ -22,6 +30,11 @@ _DATASET_REQUIRED_FIELDS = {"id", "category", "dataset", "template", "scoring"}
 _FILE_METADATA_FIELDS = {"release", "signal_snapshot", "signal_source"}
 
 logger = logging.getLogger(__name__)
+
+
+def available_categories() -> list[str]:
+    """Category names — one per task YAML file."""
+    return sorted(p.stem for p in TASKS_DIR.glob("*.yaml"))
 
 
 def _validate_task(task: dict, source: str, index: int) -> None:
