@@ -21,6 +21,7 @@ Quick start (llm-bench, or python run.py from a checkout):
   llm-bench --backend ollama         # only Ollama models
   llm-bench --category math          # single category
   llm-bench --task capital_france    # single task by ID
+  llm-bench --task task_a task_b     # multiple explicit task IDs
   llm-bench --no-autoload            # skip LM Studio model-load attempt
   llm-bench --allow-code-exec        # enable code_exec scoring (runs model-generated Python)
   llm-bench --ci-threshold 0.8       # exit 1 if overall score < 80%  (CI integration)
@@ -89,6 +90,16 @@ def _print_model_summary(model_results: list[dict]) -> None:
     )
 
 
+def _filter_tasks_by_ids(tasks: list[dict], task_ids: list[str]) -> list[dict]:
+    requested = set(task_ids)
+    filtered = [task for task in tasks if task.get("id") in requested]
+    found = {task.get("id") for task in filtered}
+    missing = [task_id for task_id in task_ids if task_id not in found]
+    if missing:
+        raise ValueError(f"Task ID(s) not found: {', '.join(missing)}")
+    return filtered
+
+
 def main():
     tasks_dir = _early_tasks_dir()
     categories = available_categories(tasks_dir)
@@ -103,7 +114,8 @@ def main():
                         help="Benchmark only these model ID(s) (matched against any backend; use multiple for arena)")
     parser.add_argument("--backend",        help="Restrict to one backend type (lm_studio | ollama | llamacpp)")
     parser.add_argument("--category",       choices=categories,      help="Run only this task category")
-    parser.add_argument("--task",           help="Run only a single task by ID")
+    parser.add_argument("--task",           nargs="+",
+                        help="Run only the specified task ID(s)")
     parser.add_argument("--tasks-dir",      default=None, metavar="DIR",
                         help="Load tasks from this directory instead of the bundled tasks/")
     parser.add_argument("--output",         default="results",       help="Results output directory")
@@ -186,9 +198,10 @@ def main():
     # ── tasks ─────────────────────────────────────────────────────────────
     tasks = load_tasks(args.category, tasks_dir=args.tasks_dir)
     if args.task:
-        tasks = [t for t in tasks if t["id"] == args.task]
-        if not tasks:
-            console.print(f"[red]Task '{args.task}' not found. Use --dry-run to list all task IDs.[/red]")
+        try:
+            tasks = _filter_tasks_by_ids(tasks, args.task)
+        except ValueError as exc:
+            console.print(f"[red]{exc}. Use --dry-run to list all task IDs.[/red]")
             sys.exit(1)
     if not tasks:
         console.print("[red]No tasks loaded. Check the tasks/ directory.[/red]")

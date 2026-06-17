@@ -1,0 +1,46 @@
+# OpenRouter frontier coding/agent-loop validation profile.
+#
+# No API key is stored here. Set one in the shell before running:
+#   PowerShell: $env:OPENROUTER_API_KEY = "sk-or-v1-..."
+#
+# This profile intentionally uses one deterministic run per task to keep
+# validation probes cheap. Use --task with multiple IDs for a focused hard slice,
+# or omit --task to run all agent_loop tasks.
+
+backends:
+  generic_openai:
+    enabled: true
+    name: "Generic OpenAI"
+    base_url: "https://openrouter.ai/api/v1"
+    auto_discover: true
+    # For a single-model Claude thinking run, uncomment this block or put it on
+    # a task as `extra_body`. OpenRouter bills reasoning tokens as output tokens.
+    # extra_body:
+    #   reasoning:
+    #     max_tokens: 512
+
+models:
+  - backend: generic_openai
+    id: "anthropic/claude-opus-4.7"
+  - backend: generic_openai
+    id: "z-ai/glm-5.2"
+  - backend: generic_openai
+    id: "google/gemini-3.5-flash"
+  - backend: generic_openai
+    id: "moonshotai/kimi-k2.6"
+  - backend: generic_openai
+    id: "qwen/qwen3.7-max"
+  - backend: generic_openai
+    id: "minimax/minimax-m3"
+
+benchmark:
+  temperature: 0.0
+  max_tokens: 4096
+  timeout: 240
+  runs_per_task: 1
+  resume: true
+  hf_auto_config: false
+
+judge:
+  enabled: false
+  model: null

@@ -54,6 +54,7 @@ Dataset-driven tasks use `dataset` + `template` instead of `prompt`; see [Datase
 | `reasoning_effort` | string | backend/config | Responses API reasoning effort such as `low`, `medium`, `high`, or `xhigh` |
 | `reasoning_summary` | string | backend/config | Optional Responses API reasoning summary mode such as `auto` |
 | `text_verbosity` | string | backend/config | Responses API text verbosity such as `low`, `medium`, or `high` |
+| `extra_body` | dict | backend/config | Extra Chat Completions request body for OpenAI-compatible providers, such as OpenRouter `reasoning.max_tokens` |
 | `image_url`   | string/list | none | Remote image URL(s) for vision-language tasks |
 | `image_path`  | string/list | none | Local image path(s) for vision-language tasks |
 

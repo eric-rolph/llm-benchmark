@@ -4,6 +4,7 @@ benchmark/backends/base.py — abstract backend interface.
 from __future__ import annotations
 
 import os
+from copy import deepcopy
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from urllib.parse import urlparse, urlunparse
@@ -27,6 +28,16 @@ class ModelInfo:
             gb = self.size_bytes / 1e9
             size_str = f"  {gb:.1f} GB"
         return f"{self.name}{size_str}  [{self.backend_name}]"
+
+
+def _deep_merge(base: dict, override: dict) -> dict:
+    merged = deepcopy(base)
+    for key, value in override.items():
+        if isinstance(value, dict) and isinstance(merged.get(key), dict):
+            merged[key] = _deep_merge(merged[key], value)
+        else:
+            merged[key] = deepcopy(value)
+    return merged
 
 
 class Backend(ABC):
@@ -77,6 +88,11 @@ class Backend(ABC):
             if openai_key:
                 return openai_key
 
+        if "openrouter.ai" in self.base_url:
+            openrouter_key = os.environ.get("OPENROUTER_API_KEY")
+            if openrouter_key:
+                return openrouter_key
+
         return self.config.get("api_key", "noop")
 
     def _auth_headers(self) -> dict[str, str]:
@@ -90,7 +106,11 @@ class Backend(ABC):
         Extra keyword args injected into client.chat.completions.create().
         Override in backends that need non-standard params (e.g. Ollama think=True).
         """
-        return {}
+        extra_body = deepcopy(self.config.get("extra_body") or {})
+        task_extra_body = task.get("extra_body") or {}
+        if task_extra_body:
+            extra_body = _deep_merge(extra_body, task_extra_body)
+        return {"extra_body": extra_body} if extra_body else {}
 
     def use_responses_api(self, model_id: str, task: dict) -> bool:
         """Return True when this backend should use client.responses.create()."""

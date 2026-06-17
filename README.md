@@ -171,6 +171,22 @@ The same result JSON/CSV files can be compared against local runs with
 `--compare`, so GPT-class models and smaller local models share the same
 scoring and leaderboard tier policy.
 
+### OpenRouter frontier coding probes
+
+For OpenRouter-hosted SOTA comparisons, use the included profile:
+
+```powershell
+$env:OPENROUTER_API_KEY = "sk-or-v1-..."
+python .\run.py --config .\configs\openrouter-frontier-agent-loop.yaml --backend generic_openai --category agent_loop --task agent_loop_004_csv_import_reconciliation agent_loop_005_ttl_cache_invalidation --allow-code-exec --output results\openrouter_frontier_agent_loop_hard_probe
+```
+
+The profile runs the six frontier model IDs requested for coding/agent-loop
+validation: Claude Opus 4.7, GLM 5.2, Gemini 3.5 Flash, Kimi K2.6, Qwen 3.7
+Max, and MiniMax M3. It uses `runs_per_task: 1` and `resume: true` to keep
+cost bounded while preserving crash-safe JSONL output. For a single-model
+OpenRouter thinking-budget run, set backend or task-level `extra_body`, for
+example `reasoning.max_tokens: 512`.
+
 ---
 
 ## All Commands
@@ -183,6 +199,7 @@ llm-bench --model "qwen3:8b"        # single model (all categories)
 llm-bench --backend ollama          # restrict to one backend type
 llm-bench --category math           # single category
 llm-bench --task capital_france     # single task by ID
+llm-bench --task task_a task_b      # multiple explicit task IDs
 llm-bench --limit 2                 # first 2 tasks per category (quick smoke test)
 llm-bench --resume                  # skip tasks already in the most recent results JSONL
 llm-bench --compare old.jsonl new.jsonl # compare two saved result files
