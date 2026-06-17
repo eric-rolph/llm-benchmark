@@ -387,7 +387,7 @@ tasks:
 
   - id: workflow_trace_repo_repair_001
     category: agentic
-    benchmark_tier: repo_agent
+    benchmark_tier: diagnostic
     difficulty: hard
     execution_surface: local_workspace_repair
     source_signal: workspace-repair

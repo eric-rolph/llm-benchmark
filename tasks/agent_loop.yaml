@@ -8,8 +8,8 @@ tasks:
   - id: agent_loop_001_mean_repair
     introduced: 2026-06-17
     category: agent_loop
-    benchmark_tier: repo_agent
-    difficulty: hard
+    benchmark_tier: smoke
+    difficulty: medium
     execution_surface: observed_agent_loop
     source_signal: clawbot-hermes-loop
     human_minutes_estimate: 10
@@ -45,8 +45,8 @@ tasks:
   - id: agent_loop_002_config_flags
     introduced: 2026-06-17
     category: agent_loop
-    benchmark_tier: repo_agent
-    difficulty: hard
+    benchmark_tier: smoke
+    difficulty: medium
     execution_surface: observed_agent_loop
     source_signal: clawbot-hermes-loop
     human_minutes_estimate: 15
@@ -98,8 +98,8 @@ tasks:
   - id: agent_loop_003_todo_priority
     introduced: 2026-06-17
     category: agent_loop
-    benchmark_tier: repo_agent
-    difficulty: hard
+    benchmark_tier: smoke
+    difficulty: medium
     execution_surface: observed_agent_loop
     source_signal: clawbot-hermes-loop
     human_minutes_estimate: 15
