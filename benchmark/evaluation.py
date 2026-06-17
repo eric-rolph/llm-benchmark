@@ -2,10 +2,13 @@
 from __future__ import annotations
 
 DEFAULT_PASS_THRESHOLD = 0.8
+NON_LEADERBOARD_TIERS = {"smoke", "diagnostic"}
 
 # Composite-score weights: harder categories carry more weight.
 CATEGORY_WEIGHTS: dict = {
+    "agent_loop":            1.8,
     "coding":                1.5,
+    "repo_patch":            1.6,
     "math":                  1.2,
     "reasoning":             1.2,
     "agentic":               1.4,
@@ -20,7 +23,10 @@ CATEGORY_WEIGHTS: dict = {
 # this many reasoning tokens to solve tasks in each category.
 # Non-thinking models (reasoning_tokens == 0) are excluded from E3 computation.
 E3_EXPECTED_TOKENS: dict = {
+    "agent_loop":            5000,
     "coding":                2000,
+    "repo_patch":            2500,
+    "agentic":               1500,
     "math":                  600,
     "reasoning":             600,
     "knowledge":             200,
@@ -28,6 +34,33 @@ E3_EXPECTED_TOKENS: dict = {
     "summarization":         400,
     "writing":               400,
 }
+
+
+def task_tier(task: dict | None) -> str:
+    """Return a normalized benchmark tier for a task or persisted record."""
+    task = task or {}
+    raw = task.get("benchmark_tier", task.get("tier", "leaderboard"))
+    value = str(raw or "leaderboard").strip().lower()
+    return value or "leaderboard"
+
+
+def is_leaderboard_task(task: dict | None) -> bool:
+    """True for tasks that should contribute to headline/core comparisons."""
+    task = task or {}
+    if task_tier(task) in NON_LEADERBOARD_TIERS:
+        return False
+    contamination = str(task.get("contamination_risk", "") or "").strip().lower()
+    return contamination != "high"
+
+
+def leaderboard_results(results: list[dict]) -> list[dict]:
+    """Filter scored results or flat records down to headline-eligible rows."""
+    filtered = []
+    for result in results:
+        task = result.get("task", result)
+        if is_leaderboard_task(task):
+            filtered.append(result)
+    return filtered
 
 
 def task_pass_threshold(task: dict | None) -> float:

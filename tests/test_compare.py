@@ -55,6 +55,28 @@ def test_compare_records_counts_unmatched_model_task_pairs():
     assert summary["candidate_only_count"] == 1
 
 
+def test_compare_composite_excludes_smoke_and_high_contamination_records():
+    baseline = [
+        _record("model-a", "core", "coding", 0.0),
+        _record("model-a", "smoke", "coding", 1.0, benchmark_tier="smoke"),
+        _record("model-a", "contaminated", "coding", 1.0, contamination_risk="high"),
+    ]
+    candidate = [
+        _record("model-a", "core", "coding", 1.0),
+        _record("model-a", "smoke", "coding", 0.0, benchmark_tier="smoke"),
+        _record("model-a", "contaminated", "coding", 0.0, contamination_risk="high"),
+    ]
+
+    summary = compare_records(baseline, candidate)
+
+    model_a = next(row for row in summary["models"] if row["model_id"] == "model-a")
+    assert model_a["baseline_score"] == pytest.approx(2 / 3)
+    assert model_a["candidate_score"] == pytest.approx(1 / 3)
+    assert model_a["baseline_composite"] == pytest.approx(0.0)
+    assert model_a["candidate_composite"] == pytest.approx(1.0)
+    assert model_a["composite_delta"] == pytest.approx(1.0)
+
+
 def test_load_result_records_supports_jsonl_and_saved_json(tmp_path):
     jsonl_path = tmp_path / "results.jsonl"
     jsonl_path.write_text(

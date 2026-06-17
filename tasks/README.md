@@ -32,7 +32,7 @@ tasks:
 | Field      | Type   | Description |
 |------------|--------|-------------|
 | `id`       | string | Unique identifier — no spaces, use `snake_case` |
-| `category` | string | One of: `math`, `reasoning`, `coding`, `agentic`, `instruction_following`, `knowledge`, `writing`, `summarization` |
+| `category` | string | One of: `math`, `reasoning`, `coding`, `repo_patch`, `agent_loop`, `agentic`, `instruction_following`, `knowledge`, `writing`, `summarization` |
 | `prompt`   | string | The question or instruction sent to the model |
 | `scoring`  | dict   | Scoring configuration (see below) |
 
@@ -45,10 +45,15 @@ Dataset-driven tasks use `dataset` + `template` instead of `prompt`; see [Datase
 | `system`      | string  | none    | System prompt prepended before user turn |
 | `temperature` | float   | from config | Override per-task temperature |
 | `max_tokens`  | int     | from config | Override per-task token limit |
+| `max_output_tokens` | int | backend/config | Override per-task Responses API output budget, including hidden reasoning tokens |
 | `pass_threshold` | float | 0.8 | Score needed for PASS/FAIL reporting |
+| `benchmark_tier` | string | `leaderboard` | `leaderboard`/`fresh`/`repo_agent` count toward headline comparisons; `smoke`/`diagnostic` remain visible but are excluded from the headline composite and CI threshold |
 | `execution_surface` | string | none | Surface tag for Claw-style reporting, e.g. `local_workspace_repair` |
 | `source_signal` | string | none | Demand signal or workflow family that motivated the task |
 | `thinking`    | boolean | false   | Request thinking/reasoning mode (Ollama only) |
+| `reasoning_effort` | string | backend/config | Responses API reasoning effort such as `low`, `medium`, `high`, or `xhigh` |
+| `reasoning_summary` | string | backend/config | Optional Responses API reasoning summary mode such as `auto` |
+| `text_verbosity` | string | backend/config | Responses API text verbosity such as `low`, `medium`, or `high` |
 | `image_url`   | string/list | none | Remote image URL(s) for vision-language tasks |
 | `image_path`  | string/list | none | Local image path(s) for vision-language tasks |
 
@@ -129,6 +134,97 @@ scoring:
 
 The model is expected to return a code block containing a function named (e.g.) `add`.
 The `test_code` is appended to the extracted code and the full script is executed.
+
+### `repo_patch`
+Copies a trusted fixture repository to a temporary workspace, applies the model's
+file edits, injects hidden tests, and runs the configured test command.
+
+> ⚠️ **Requires `--allow-code-exec` flag.** The configured test command runs locally.
+> Keep fixture repos small, deterministic, and free of network dependencies.
+
+```yaml
+scoring:
+  type: repo_patch
+  repo_fixture: tasks/fixtures/repo_patch/example
+  test_command: ["{python}", "-m", "pytest", "-q"]
+  hidden_tests:
+    - path: tests/test_hidden_behavior.py
+      content: |
+        from package.module import function
+
+        def test_hidden_edge_case():
+            assert function("edge") == "expected"
+```
+
+Accepted model response formats:
+
+```json
+{"files": {"package/module.py": "complete file contents\n"}}
+```
+
+or a fenced unified diff:
+
+```diff
+diff --git a/package/module.py b/package/module.py
+--- a/package/module.py
++++ b/package/module.py
+@@ -1,2 +1,2 @@
+ def function(value):
+-    return "old"
++    return "expected"
+```
+
+### `agent_loop`
+Copies a trusted fixture repository to a temporary workspace, then lets the
+model iteratively request JSON tool actions. The harness executes each action,
+feeds back observations, records the transcript, and injects hidden tests only
+after the model calls `final`.
+
+> ⚠️ **Requires `--allow-code-exec` flag.** The configured test command runs locally.
+> Use this for Clawbot/Hermes-like development-loop tasks where the path matters.
+
+```yaml
+scoring:
+  type: agent_loop
+  repo_fixture: tasks/fixtures/agent_loop/example
+  test_command: ["{python}", "-m", "pytest", "-q"]
+  max_steps: 8
+  hidden_tests:
+    - path: tests/test_hidden_behavior.py
+      content: |
+        from package.module import function
+
+        def test_hidden_edge_case():
+            assert function("edge") == "expected"
+```
+
+The model must output one JSON action per turn:
+
+```json
+{"tool": "read_file", "args": {"path": "package/module.py"}}
+```
+
+Available tools: `list_files`, `read_file`, `write_file`, `run_tests`, and `final`.
+`write_file` requires complete file contents. `run_tests` runs visible tests only;
+hidden tests are injected after `final`.
+
+Simple function-call syntax is also accepted:
+
+```text
+list_files(path=".")
+read_file(path="package/module.py")
+run_tests()
+final(summary="fixed behavior")
+```
+
+For multi-line file writes, `write_file` accepts either JSON-escaped newlines or
+triple-quoted content:
+
+```text
+write_file(path="package/module.py", content="""def function(value):
+    return "expected"
+""")
+```
 
 ### `logprob_choice`
 For multiple-choice/base-model tasks, asks the backend for one token with logprobs

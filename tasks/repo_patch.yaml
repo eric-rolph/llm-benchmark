@@ -1,0 +1,225 @@
+metadata:
+  version: 1
+  release: "2026Q2-repo-patch-slice"
+  signal_snapshot: "2026-06-16"
+  signal_source: "Terminal-Bench/SWE-bench criticism mitigation"
+
+tasks:
+  - id: repo_patch_001_ledger_amounts
+    introduced: 2026-06-16
+    category: repo_patch
+    benchmark_tier: repo_agent
+    difficulty: hard
+    execution_surface: local_repo_patch
+    source_signal: swe-terminal-criticism
+    human_minutes_estimate: 10
+    criticisms_addressed:
+      - contamination_resistant_local_fixture
+      - explicit_acceptance_criteria
+      - hidden_edge_case_tests
+      - hermetic_temp_workspace
+    description: "Repo patch: parse ledger amounts with commas and accounting negatives"
+    prompt: |
+      You are editing a small Python repository. Fix `ledger.amounts` so:
+        1. `parse_amount(text)` accepts dollar signs, commas, surrounding whitespace,
+           plain decimals, and accounting negatives wrapped in parentheses.
+        2. `total_amounts(rows)` keeps summing each row's `"amount"` value.
+        3. Invalid amount strings still raise `ValueError`.
+
+      Return either a unified diff or a JSON object shaped like:
+      {"files": {"relative/path.py": "complete file contents"}}
+
+      Repository files:
+        ledger/__init__.py
+        ledger/amounts.py
+        tests/test_amounts.py
+
+      Current `ledger/amounts.py`:
+      ```python
+      def parse_amount(text):
+          return float(text.strip().replace("$", ""))
+
+
+      def total_amounts(rows):
+          return sum(parse_amount(row["amount"]) for row in rows)
+      ```
+    scoring:
+      type: repo_patch
+      repo_fixture: tasks/fixtures/repo_patch/ledger_amounts
+      test_command: ["{python}", "-m", "pytest", "-q"]
+      hidden_tests:
+        - path: tests/test_hidden_amounts.py
+          content: |
+            import pytest
+            from ledger.amounts import parse_amount, total_amounts
+
+            def test_parse_amount_handles_commas_and_whitespace():
+                assert parse_amount("  $1,234.50 ") == 1234.5
+
+            def test_parse_amount_handles_accounting_negative():
+                assert parse_amount("($99.25)") == -99.25
+
+            def test_invalid_amount_raises_value_error():
+                with pytest.raises(ValueError):
+                    parse_amount("not money")
+
+            def test_total_amounts_keeps_existing_contract():
+                rows = [{"amount": "$10.00"}, {"amount": "($2.50)"}]
+                assert total_amounts(rows) == 7.5
+
+  - id: repo_patch_002_todo_priority
+    introduced: 2026-06-16
+    category: repo_patch
+    benchmark_tier: repo_agent
+    difficulty: hard
+    execution_surface: local_repo_patch
+    source_signal: swe-terminal-criticism
+    human_minutes_estimate: 15
+    criticisms_addressed:
+      - multi_file_patch_required
+      - explicit_sorting_contract
+      - hidden_regression_tests
+      - hermetic_temp_workspace
+    description: "Repo patch: add priority-aware todo filtering across model and filter modules"
+    prompt: |
+      You are editing a small Python repository. Add priority-aware todo filtering:
+        1. Extend `todo_app.models.Todo` with an integer `priority` field defaulting to 0.
+        2. Add `urgent_open_titles(todos, min_priority=5)` to `todo_app.filters`.
+        3. It returns titles for incomplete todos whose priority is at least `min_priority`.
+        4. Sort results by priority descending, then title ascending for ties.
+        5. Keep the existing `open_titles` behavior unchanged.
+
+      Return either a unified diff or a JSON object shaped like:
+      {"files": {"relative/path.py": "complete file contents"}}
+
+      Repository files:
+        todo_app/__init__.py
+        todo_app/models.py
+        todo_app/filters.py
+        tests/test_todos.py
+
+      Current `todo_app/models.py`:
+      ```python
+      from dataclasses import dataclass
+
+
+      @dataclass
+      class Todo:
+          title: str
+          done: bool = False
+          tags: tuple[str, ...] = ()
+      ```
+
+      Current `todo_app/filters.py`:
+      ```python
+      def open_titles(todos):
+          return [todo.title for todo in todos if not todo.done]
+      ```
+    scoring:
+      type: repo_patch
+      repo_fixture: tasks/fixtures/repo_patch/todo_priority
+      test_command: ["{python}", "-m", "pytest", "-q"]
+      hidden_tests:
+        - path: tests/test_hidden_priority.py
+          content: |
+            from todo_app.filters import open_titles, urgent_open_titles
+            from todo_app.models import Todo
+
+            def test_todo_priority_defaults_to_zero():
+                assert Todo("inbox").priority == 0
+
+            def test_urgent_open_titles_filters_done_and_low_priority_items():
+                todos = [
+                    Todo("low", priority=2),
+                    Todo("done urgent", done=True, priority=10),
+                    Todo("urgent", priority=9),
+                ]
+                assert urgent_open_titles(todos) == ["urgent"]
+
+            def test_urgent_open_titles_sorts_by_priority_then_title():
+                todos = [
+                    Todo("beta", priority=7),
+                    Todo("alpha", priority=7),
+                    Todo("top", priority=10),
+                ]
+                assert urgent_open_titles(todos, min_priority=1) == ["top", "alpha", "beta"]
+
+            def test_open_titles_contract_is_unchanged():
+                assert open_titles([Todo("a"), Todo("b", done=True)]) == ["a"]
+
+  - id: repo_patch_003_config_flags
+    introduced: 2026-06-16
+    category: repo_patch
+    benchmark_tier: repo_agent
+    difficulty: hard
+    execution_surface: local_repo_patch
+    source_signal: swe-terminal-criticism
+    human_minutes_estimate: 15
+    criticisms_addressed:
+      - explicit_invalid_input_contract
+      - hidden_regression_tests
+      - avoids_overly_narrow_implementation
+      - hermetic_temp_workspace
+    description: "Repo patch: robust boolean config parsing with comments and validation"
+    prompt: |
+      You are editing a small Python repository. Improve `settings_app.config`:
+        1. `parse_bool(value)` should accept true/false, yes/no, on/off, and 1/0,
+           case-insensitively, ignoring surrounding whitespace.
+        2. `load_flags(lines)` should ignore blank lines and full-line comments
+           starting with `#`.
+        3. `load_flags(lines)` should allow spaces around keys and values.
+        4. Duplicate keys are allowed; the last value wins.
+        5. Non-empty, non-comment lines without `=` must raise `ValueError`.
+
+      Return either a unified diff or a JSON object shaped like:
+      {"files": {"relative/path.py": "complete file contents"}}
+
+      Repository files:
+        settings_app/__init__.py
+        settings_app/config.py
+        tests/test_config.py
+
+      Current `settings_app/config.py`:
+      ```python
+      def parse_bool(value):
+          if value in ("true", "1"):
+              return True
+          if value in ("false", "0"):
+              return False
+          raise ValueError(f"invalid boolean: {value}")
+
+
+      def load_flags(lines):
+          flags = {}
+          for line in lines:
+              if not line.strip():
+                  continue
+              key, value = line.split("=")
+              flags[key] = parse_bool(value)
+          return flags
+      ```
+    scoring:
+      type: repo_patch
+      repo_fixture: tasks/fixtures/repo_patch/config_flags
+      test_command: ["{python}", "-m", "pytest", "-q"]
+      hidden_tests:
+        - path: tests/test_hidden_config.py
+          content: |
+            import pytest
+            from settings_app.config import load_flags, parse_bool
+
+            def test_parse_bool_accepts_extended_values_case_insensitively():
+                assert parse_bool(" YES ") is True
+                assert parse_bool("off") is False
+                assert parse_bool("On") is True
+
+            def test_load_flags_ignores_blank_lines_and_comments():
+                lines = ["", "   ", "# comment", "debug = yes"]
+                assert load_flags(lines) == {"debug": True}
+
+            def test_duplicate_keys_last_value_wins():
+                assert load_flags(["debug=false", "debug=on"]) == {"debug": True}
+
+            def test_invalid_non_comment_line_raises_value_error():
+                with pytest.raises(ValueError):
+                    load_flags(["debug true"])

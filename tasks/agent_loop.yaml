@@ -1,0 +1,348 @@
+metadata:
+  version: 1
+  release: "2026Q2-agent-loop-slice"
+  signal_snapshot: "2026-06-17"
+  signal_source: "Clawbot/Hermes observed development loop"
+
+tasks:
+  - id: agent_loop_001_mean_repair
+    introduced: 2026-06-17
+    category: agent_loop
+    benchmark_tier: repo_agent
+    difficulty: hard
+    execution_surface: observed_agent_loop
+    source_signal: clawbot-hermes-loop
+    human_minutes_estimate: 10
+    criticisms_addressed:
+      - observed_tool_use_not_self_reported_trace
+      - visible_tests_during_loop_hidden_tests_after_final
+      - hermetic_temp_workspace
+      - persisted_tool_transcript
+    description: "Observed agent loop: inspect, patch, and test a small repo"
+    prompt: |
+      You are fixing a small Python repository. The `calc.stats.mean` function
+      should return the arithmetic mean for any non-empty numeric list, including
+      cases where the result is fractional.
+
+      Use the available JSON tools to inspect the repo, edit files, run visible
+      tests, and then call `final` when your fix is ready.
+    scoring:
+      type: agent_loop
+      repo_fixture: tasks/fixtures/agent_loop/mean_tool_loop
+      test_command: ["{python}", "-m", "pytest", "-q"]
+      max_steps: 8
+      hidden_tests:
+        - path: tests/test_hidden_stats.py
+          content: |
+            from calc.stats import mean
+
+            def test_mean_fractional_result():
+                assert mean([1, 2]) == 1.5
+
+            def test_mean_accepts_negative_values():
+                assert mean([-3, 3, 6]) == 2
+
+  - id: agent_loop_002_config_flags
+    introduced: 2026-06-17
+    category: agent_loop
+    benchmark_tier: repo_agent
+    difficulty: hard
+    execution_surface: observed_agent_loop
+    source_signal: clawbot-hermes-loop
+    human_minutes_estimate: 15
+    criticisms_addressed:
+      - observed_tool_use_not_self_reported_trace
+      - no_embedded_source_context
+      - visible_tests_during_loop_hidden_tests_after_final
+      - hermetic_temp_workspace
+    description: "Observed agent loop: repair boolean config parsing"
+    prompt: |
+      You are fixing a small Python repository. Improve the config parser so:
+        1. `parse_bool(value)` accepts true/false, yes/no, on/off, and 1/0,
+           case-insensitively, ignoring surrounding whitespace.
+        2. `load_flags(lines)` ignores blank lines and full-line comments
+           starting with `#`.
+        3. `load_flags(lines)` allows spaces around keys and values.
+        4. Duplicate keys are allowed; the last value wins.
+        5. Non-empty, non-comment lines without `=` raise `ValueError`.
+
+      Use the available JSON tools to inspect the repo, edit files, run visible
+      tests, and then call `final` when your fix is ready.
+    scoring:
+      type: agent_loop
+      repo_fixture: tasks/fixtures/repo_patch/config_flags
+      test_command: ["{python}", "-m", "pytest", "-q"]
+      max_steps: 10
+      hidden_tests:
+        - path: tests/test_hidden_config.py
+          content: |
+            import pytest
+            from settings_app.config import load_flags, parse_bool
+
+            def test_parse_bool_accepts_extended_values_case_insensitively():
+                assert parse_bool(" YES ") is True
+                assert parse_bool("off") is False
+                assert parse_bool("On") is True
+
+            def test_load_flags_ignores_blank_lines_and_comments():
+                lines = ["", "   ", "# comment", "debug = yes"]
+                assert load_flags(lines) == {"debug": True}
+
+            def test_duplicate_keys_last_value_wins():
+                assert load_flags(["debug=false", "debug=on"]) == {"debug": True}
+
+            def test_invalid_non_comment_line_raises_value_error():
+                with pytest.raises(ValueError):
+                    load_flags(["debug true"])
+
+  - id: agent_loop_003_todo_priority
+    introduced: 2026-06-17
+    category: agent_loop
+    benchmark_tier: repo_agent
+    difficulty: hard
+    execution_surface: observed_agent_loop
+    source_signal: clawbot-hermes-loop
+    human_minutes_estimate: 15
+    criticisms_addressed:
+      - observed_tool_use_not_self_reported_trace
+      - no_embedded_source_context
+      - multi_file_patch_required
+      - visible_tests_during_loop_hidden_tests_after_final
+    description: "Observed agent loop: add priority-aware todo filtering"
+    prompt: |
+      You are fixing a small Python repository. Add priority-aware todo filtering:
+        1. Extend the Todo model with an integer `priority` field defaulting to 0.
+        2. Add `urgent_open_titles(todos, min_priority=5)` to the filters module.
+        3. It returns titles for incomplete todos whose priority is at least `min_priority`.
+        4. Sort results by priority descending, then title ascending for ties.
+        5. Keep the existing open-title behavior unchanged.
+
+      Use the available JSON tools to inspect the repo, edit files, run visible
+      tests, and then call `final` when your fix is ready.
+    scoring:
+      type: agent_loop
+      repo_fixture: tasks/fixtures/repo_patch/todo_priority
+      test_command: ["{python}", "-m", "pytest", "-q"]
+      max_steps: 12
+      hidden_tests:
+        - path: tests/test_hidden_priority.py
+          content: |
+            from todo_app.filters import open_titles, urgent_open_titles
+            from todo_app.models import Todo
+
+            def test_todo_priority_defaults_to_zero():
+                assert Todo("inbox").priority == 0
+
+            def test_urgent_open_titles_filters_done_and_low_priority_items():
+                todos = [
+                    Todo("low", priority=2),
+                    Todo("done urgent", done=True, priority=10),
+                    Todo("urgent", priority=9),
+                ]
+                assert urgent_open_titles(todos) == ["urgent"]
+
+            def test_urgent_open_titles_sorts_by_priority_then_title():
+                todos = [
+                    Todo("beta", priority=7),
+                    Todo("alpha", priority=7),
+                    Todo("top", priority=10),
+                ]
+                assert urgent_open_titles(todos, min_priority=1) == ["top", "alpha", "beta"]
+
+            def test_open_titles_contract_is_unchanged():
+                assert open_titles([Todo("a"), Todo("b", done=True)]) == ["a"]
+
+  - id: agent_loop_004_csv_import_reconciliation
+    introduced: 2026-06-17
+    category: agent_loop
+    benchmark_tier: repo_agent
+    difficulty: hard
+    execution_surface: observed_agent_loop
+    source_signal: clawbot-hermes-loop
+    human_minutes_estimate: 25
+    criticisms_addressed:
+      - observed_tool_use_not_self_reported_trace
+      - no_embedded_source_context
+      - multi_file_patch_required
+      - misleading_or_incomplete_visible_tests
+      - visible_tests_during_loop_hidden_tests_after_final
+      - hermetic_temp_workspace
+    description: "Observed agent loop: harden CSV payment import and reconciliation"
+    prompt: |
+      You are fixing a small Python repository that imports payment CSV data and
+      reconciles settled totals by account. The visible tests cover only the
+      happy path; do not assume they are complete.
+
+      Requirements:
+        1. Parse CSV with Python's csv module so quoted fields are handled.
+        2. Ignore blank rows and full-line comment rows whose first non-space
+           character is `#`, including comments before the header.
+        3. Strip surrounding whitespace from payment_id, account, amount, and
+           status fields.
+        4. Convert decimal-dollar amounts to integer cents exactly with Decimal.
+        5. Reject amounts with more than two decimal places by raising ValueError.
+        6. Reject duplicate payment_id values by raising ValueError.
+        7. Treat status case-insensitively, and count only settled payments.
+        8. Settled negative amounts are refunds and must subtract from totals.
+
+      Use the available JSON tools to inspect the repo, edit files, run visible
+      tests, and then call `final` when your fix is ready.
+    scoring:
+      type: agent_loop
+      repo_fixture: tasks/fixtures/agent_loop/csv_import_reconciliation
+      test_command: ["{python}", "-m", "pytest", "-q"]
+      max_steps: 14
+      hidden_tests:
+        - path: tests/test_hidden_reconciliation.py
+          content: |
+            import pytest
+            from importer.parser import parse_payment_rows
+            from importer.summary import settled_totals_by_account
+
+            def test_comments_blank_rows_whitespace_and_case_are_handled():
+                csv_text = """
+                # exported from gateway
+
+                payment_id, account, amount, status
+                p1, acct-a , 10.25 , SETTLED
+                p2,acct-a, 5.00,pending
+                p3,acct-a,-1.25, settled
+                """
+                assert settled_totals_by_account(csv_text) == {"acct-a": 900}
+
+            def test_csv_quoted_fields_are_supported():
+                csv_text = (
+                    "payment_id,account,amount,status\n"
+                    '"p,1","enterprise, west",12.30,settled\n'
+                )
+                rows = parse_payment_rows(csv_text)
+                assert rows[0].payment_id == "p,1"
+                assert rows[0].account == "enterprise, west"
+                assert rows[0].cents == 1230
+
+            def test_duplicate_payment_ids_raise_value_error():
+                with pytest.raises(ValueError):
+                    parse_payment_rows(
+                        "payment_id,account,amount,status\n"
+                        "p1,a,1.00,settled\n"
+                        "p1,b,2.00,settled\n"
+                    )
+
+            def test_amounts_with_more_than_two_decimal_places_raise_value_error():
+                with pytest.raises(ValueError):
+                    parse_payment_rows(
+                        "payment_id,account,amount,status\n"
+                        "p1,a,1.001,settled\n"
+                    )
+
+  - id: agent_loop_005_ttl_cache_invalidation
+    introduced: 2026-06-17
+    category: agent_loop
+    benchmark_tier: repo_agent
+    difficulty: hard
+    execution_surface: observed_agent_loop
+    source_signal: clawbot-hermes-loop
+    human_minutes_estimate: 25
+    criticisms_addressed:
+      - observed_tool_use_not_self_reported_trace
+      - no_embedded_source_context
+      - multi_file_patch_required
+      - misleading_or_incomplete_visible_tests
+      - visible_tests_during_loop_hidden_tests_after_final
+      - hermetic_temp_workspace
+    description: "Observed agent loop: repair TTL cache and service invalidation"
+    prompt: |
+      You are fixing a small Python repository with a TTL cache used by a
+      product service. The visible tests only check basic cache reuse.
+
+      Requirements:
+        1. TTLCache.get_or_set(key, factory) must reuse unexpired values.
+        2. Entries expire when their age is greater than or equal to ttl_seconds.
+        3. Expired entries must be recomputed with the current factory.
+        4. Exceptions from factory must not be cached.
+        5. invalidate(key) removes one entry, and invalidate() clears all entries.
+        6. ProductService.get_product(product_id, include_archived=False) must
+           cache archived and non-archived fetches under distinct keys.
+        7. ProductService.refresh_product(product_id) must invalidate both
+           archived and non-archived variants for that product, then return a
+           fresh non-archived product.
+
+      Use the available JSON tools to inspect the repo, edit files, run visible
+      tests, and then call `final` when your fix is ready.
+    scoring:
+      type: agent_loop
+      repo_fixture: tasks/fixtures/agent_loop/ttl_cache_invalidation
+      test_command: ["{python}", "-m", "pytest", "-q"]
+      max_steps: 14
+      hidden_tests:
+        - path: tests/test_hidden_cache.py
+          content: |
+            import pytest
+            from catalog.cache import TTLCache
+            from catalog.clock import ManualClock
+            from catalog.service import ProductService
+
+            def test_cache_recomputes_when_ttl_expires():
+                clock = ManualClock()
+                cache = TTLCache(ttl_seconds=5, clock=clock)
+                calls = []
+
+                def factory():
+                    calls.append(clock.now())
+                    return f"value-{len(calls)}"
+
+                assert cache.get_or_set("a", factory) == "value-1"
+                clock.advance(4.999)
+                assert cache.get_or_set("a", factory) == "value-1"
+                clock.advance(0.001)
+                assert cache.get_or_set("a", factory) == "value-2"
+
+            def test_factory_exceptions_are_not_cached():
+                clock = ManualClock()
+                cache = TTLCache(ttl_seconds=5, clock=clock)
+                calls = []
+
+                def factory():
+                    calls.append("called")
+                    if len(calls) == 1:
+                        raise RuntimeError("temporary")
+                    return "ok"
+
+                with pytest.raises(RuntimeError):
+                    cache.get_or_set("a", factory)
+                assert cache.get_or_set("a", factory) == "ok"
+                assert calls == ["called", "called"]
+
+            def test_product_service_keys_include_archived_flag():
+                clock = ManualClock()
+                calls = []
+
+                class Client:
+                    def fetch_product(self, product_id, include_archived=False):
+                        calls.append((product_id, include_archived))
+                        return {"id": product_id, "archived": include_archived, "call": len(calls)}
+
+                service = ProductService(Client(), clock, ttl_seconds=10)
+
+                assert service.get_product("sku-1")["archived"] is False
+                assert service.get_product("sku-1", include_archived=True)["archived"] is True
+                assert service.get_product("sku-1")["call"] == 1
+                assert calls == [("sku-1", False), ("sku-1", True)]
+
+            def test_refresh_invalidates_all_variants_for_product():
+                clock = ManualClock()
+                calls = []
+
+                class Client:
+                    def fetch_product(self, product_id, include_archived=False):
+                        calls.append((product_id, include_archived))
+                        return {"id": product_id, "archived": include_archived, "call": len(calls)}
+
+                service = ProductService(Client(), clock, ttl_seconds=10)
+                service.get_product("sku-1")
+                service.get_product("sku-1", include_archived=True)
+
+                refreshed = service.refresh_product("sku-1")
+
+                assert refreshed["call"] == 3
+                assert service.get_product("sku-1", include_archived=True)["call"] == 4

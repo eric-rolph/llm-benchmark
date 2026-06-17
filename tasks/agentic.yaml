@@ -11,6 +11,7 @@ tasks:
 
   - id: debug_001
     category: agentic
+    benchmark_tier: diagnostic
     difficulty: medium
     description: "Debug: flatten nested list — silent no-op concatenation"
     prompt: |
@@ -39,6 +40,7 @@ tasks:
 
   - id: debug_002
     category: agentic
+    benchmark_tier: diagnostic
     difficulty: medium
     description: "Debug: Caesar cipher — missing base offset in chr()"
     prompt: |
@@ -71,6 +73,7 @@ tasks:
 
   - id: debug_003
     category: agentic
+    benchmark_tier: diagnostic
     difficulty: easy
     description: "Debug: word frequency counter — == instead of = on first occurrence"
     prompt: |
@@ -384,6 +387,7 @@ tasks:
 
   - id: workflow_trace_repo_repair_001
     category: agentic
+    benchmark_tier: repo_agent
     difficulty: hard
     execution_surface: local_workspace_repair
     source_signal: workspace-repair
@@ -420,6 +424,7 @@ tasks:
 
   - id: workflow_trace_cross_system_refund_001
     category: agentic
+    benchmark_tier: repo_agent
     difficulty: hard
     execution_surface: multi_system_business_workflow
     source_signal: cross-tool

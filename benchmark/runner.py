@@ -15,7 +15,14 @@ import subprocess
 import threading
 
 from benchmark.backends.base import Backend
+from benchmark.agent_loop import run_agent_loop
 from benchmark.console import make_console
+from benchmark.responses_api import (
+    messages_to_responses_input,
+    response_output_text,
+    response_reasoning_preview,
+    response_usage_tokens,
+)
 from benchmark.utils import strip_thinking, _avg
 
 console = make_console()
@@ -127,6 +134,14 @@ class ModelRunner:
 
     def ensure_model_loaded(self) -> None:
         self.backend.ensure_model_loaded(self.model_id)
+
+    def _use_responses_api(self, task: dict) -> bool:
+        use_responses = getattr(self.backend, "use_responses_api", None)
+        return bool(use_responses and use_responses(self.model_id, task))
+
+    def _responses_params(self, task: dict) -> dict:
+        get_params = getattr(self.backend, "get_responses_params", None)
+        return dict(get_params(task, self.bench)) if get_params else {}
 
     # ── message construction ────────────────────────────────────────────────
 
@@ -318,8 +333,20 @@ class ModelRunner:
     def _run_once(self, task: dict) -> dict:
         # Route logprob_choice tasks to the non-streaming logprobs evaluator
         scoring_type = task.get("scoring", {}).get("type", "")
+        if scoring_type == "agent_loop":
+            return run_agent_loop(
+                client=self._client,
+                model_id=self.model_id,
+                task=task,
+                backend_name=self.backend.name,
+                bench_config=self.bench,
+                use_responses_api=self._use_responses_api(task),
+                responses_params=self._responses_params(task),
+            )
         if scoring_type == "logprob_choice":
             return self._run_once_logprobs(task)
+        if self._use_responses_api(task):
+            return self._run_once_responses(task)
 
         messages = self._build_messages(task)
 
@@ -499,7 +526,94 @@ class ModelRunner:
             **telemetry_data,
         }
 
+    def _run_once_responses(self, task: dict) -> dict:
+        """Non-streaming execution path for OpenAI Responses API backends."""
+        messages = self._build_messages(task)
+        scoring_type = task.get("scoring", {}).get("type", "")
+        params = self._responses_params(task)
+        req_timeout = self.bench.get("timeout", 180)
+        t_start = time.perf_counter()
+        trace = {
+            "surface": task.get("execution_surface", "model_response"),
+            "scoring_type": scoring_type,
+            "request": dict(params),
+            "events": [{"event": "request_start", "elapsed_ms": 0.0}],
+        }
+        telemetry = TelemetryTracker()
+        telemetry.start()
+
+        try:
+            response = self._client.responses.create(
+                model=self.model_id,
+                input=messages_to_responses_input(messages),
+                timeout=req_timeout,
+                **params,
+            )
+        except Exception as e:
+            telemetry.stop()
+            trace["events"].append({
+                "event": "error",
+                "elapsed_ms": round((time.perf_counter() - t_start) * 1000, 1),
+                "message": str(e),
+            })
+            return {
+                "task_id": task["id"],
+                "response": "",
+                "error": str(e),
+                "ttft_ms": None,
+                "total_ms": None,
+                "tps": None,
+                "completion_tokens": 0,
+                "reasoning_tokens": 0,
+                "backend": self.backend.name,
+                "execution_trace": trace,
+            }
+
+        telemetry_data = telemetry.stop()
+        total_ms = (time.perf_counter() - t_start) * 1000
+        completion_tokens, reasoning_tokens = response_usage_tokens(response)
+        text = response_output_text(response)
+        status = getattr(response, "status", None)
+        incomplete = getattr(response, "incomplete_details", None)
+        if status and status != "completed":
+            trace["events"].append({
+                "event": "response_incomplete",
+                "elapsed_ms": round(total_ms, 1),
+                "status": status,
+                "details": str(incomplete) if incomplete else None,
+            })
+        trace["events"].append({
+            "event": "response_complete",
+            "elapsed_ms": round(total_ms, 1),
+            "completion_tokens": completion_tokens,
+            "reasoning_tokens": reasoning_tokens,
+        })
+
+        tps: float | None = (
+            round(completion_tokens / (total_ms / 1000), 1)
+            if completion_tokens > 0 and total_ms > 0
+            else None
+        )
+        return {
+            "task_id": task["id"],
+            "response": text,
+            "reasoning_preview": response_reasoning_preview(response),
+            "error": None,
+            "ttft_ms": round(total_ms, 1),
+            "total_ms": round(total_ms, 1),
+            "tps": tps,
+            "completion_tokens": completion_tokens,
+            "reasoning_tokens": reasoning_tokens,
+            "backend": self.backend.name,
+            "hf_generation_config": dict(self.hf_generation_config),
+            "execution_trace": trace,
+            **telemetry_data,
+        }
+
     def run_task(self, task: dict) -> dict:
+        if task.get("scoring", {}).get("type") == "agent_loop":
+            return self._run_once(task)
+
         runs = self.bench.get("runs_per_task", 1)
         if runs <= 1:
             return self._run_once(task)

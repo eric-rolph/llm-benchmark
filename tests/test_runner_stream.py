@@ -12,14 +12,22 @@ from benchmark.runner import ModelRunner
 class FakeBackend:
     name = "fake"
 
-    def __init__(self, extra_params=None):
+    def __init__(self, extra_params=None, responses=False, responses_params=None):
         self._extra = extra_params or {}
+        self._responses = responses
+        self._responses_params = responses_params or {}
 
     def get_openai_client(self):
         raise AssertionError("injected client must be used, not backend.get_openai_client()")
 
     def get_extra_chat_params(self, task):
         return dict(self._extra)
+
+    def use_responses_api(self, model_id, task):
+        return self._responses
+
+    def get_responses_params(self, task, bench_config):
+        return dict(self._responses_params)
 
 
 class FakeClient:
@@ -33,6 +41,24 @@ class FakeClient:
     def _create(self, **kwargs):
         self.kwargs = kwargs
         return iter(self._chunks)
+
+
+class FakeResponsesClient:
+    def __init__(self, output_text="done", output_tokens=5, reasoning_tokens=2):
+        self.kwargs = None
+        details = SimpleNamespace(reasoning_tokens=reasoning_tokens)
+        usage = SimpleNamespace(output_tokens=output_tokens, output_tokens_details=details)
+        self._response = SimpleNamespace(
+            output_text=output_text,
+            output=[SimpleNamespace(type="reasoning", summary=[SimpleNamespace(text="checked")])],
+            usage=usage,
+            status="completed",
+        )
+        self.responses = SimpleNamespace(create=self._create)
+
+    def _create(self, **kwargs):
+        self.kwargs = kwargs
+        return self._response
 
 
 class FailingClient:
@@ -160,3 +186,32 @@ def test_api_error_returns_error_result_not_exception():
     assert result["response"] == ""
     assert result["tps"] is None
     assert result["ttft_ms"] is None
+
+
+def test_responses_api_runner_path_uses_backend_params_and_usage():
+    backend = FakeBackend(
+        responses=True,
+        responses_params={
+            "reasoning": {"effort": "high"},
+            "text": {"verbosity": "low"},
+            "max_output_tokens": 12000,
+        },
+    )
+    client = FakeResponsesClient(output_text="Answer: x", output_tokens=9, reasoning_tokens=4)
+    runner = ModelRunner(backend, "gpt-5.5", {"timeout": 30}, client=client)
+
+    result = runner._run_once(_task(system="system text"))
+
+    assert result["error"] is None
+    assert result["response"] == "Answer: x"
+    assert result["completion_tokens"] == 9
+    assert result["reasoning_tokens"] == 4
+    assert result["reasoning_preview"] == "checked"
+    assert client.kwargs["model"] == "gpt-5.5"
+    assert client.kwargs["reasoning"] == {"effort": "high"}
+    assert client.kwargs["text"] == {"verbosity": "low"}
+    assert client.kwargs["max_output_tokens"] == 12000
+    assert client.kwargs["input"] == [
+        {"role": "system", "content": "system text"},
+        {"role": "user", "content": "hi"},
+    ]

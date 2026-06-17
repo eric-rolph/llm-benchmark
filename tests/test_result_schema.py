@@ -4,7 +4,7 @@ the persisted record shape; results must survive the round trip.
 """
 import json
 
-from benchmark.result import from_record, to_record
+from benchmark.result import RESPONSE_PREVIEW_CHARS, from_record, to_record
 
 
 def _result(**updates):
@@ -13,6 +13,11 @@ def _result(**updates):
             "id": "t1",
             "prompt": "Return A",
             "category": "knowledge",
+            "benchmark_tier": "smoke",
+            "contamination_risk": "high",
+            "source_signal": "swe-terminal-criticism",
+            "human_minutes_estimate": 15,
+            "criticisms_addressed": ["hidden_tests", "hermetic_workspace"],
             "scoring": {"type": "exact", "value": "A"},
             "_version": 3,
         },
@@ -61,6 +66,11 @@ def test_record_carries_task_identity_for_resume():
     assert record["task_version"] == 3
     assert record["task_hash"]
     assert record["category"] == "knowledge"
+    assert record["benchmark_tier"] == "smoke"
+    assert record["contamination_risk"] == "high"
+    assert record["source_signal"] == "swe-terminal-criticism"
+    assert record["human_minutes_estimate"] == 15
+    assert record["criticisms_addressed"] == ["hidden_tests", "hermetic_workspace"]
     assert record["scoring_type"] == "exact"
 
 
@@ -69,6 +79,14 @@ def test_passed_is_recomputed_when_absent_from_record():
     del record["passed"]
     hydrated = from_record(_result()["task"], record)
     assert hydrated["passed"] is True  # re-derived from score vs threshold
+
+
+def test_response_preview_is_long_enough_to_debug_patch_failures():
+    response = "x" * (RESPONSE_PREVIEW_CHARS + 100)
+    record = to_record(_result(response=response))
+
+    assert len(record["response_preview"]) == RESPONSE_PREVIEW_CHARS
+    assert RESPONSE_PREVIEW_CHARS >= 4000
 
 
 def test_run_py_shim_still_exposes_main():

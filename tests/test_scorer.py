@@ -40,6 +40,35 @@ def score(task_scoring: dict, response: str, **kwargs) -> tuple:
     return scored["score"], scored["score_detail"]
 
 
+class TestAgentLoop:
+    def test_score_uses_agent_loop_direct_result(self):
+        task = make_task({"type": "agent_loop"})
+        result = {
+            **make_result("fixed"),
+            "agent_loop_score": 1.0,
+            "agent_loop_detail": "agent_loop: tests passed",
+        }
+
+        scored = score_response(task, result, allow_code_exec=True)
+
+        assert scored["score"] == 1.0
+        assert scored["passed"] is True
+        assert scored["score_detail"] == "agent_loop: tests passed"
+
+    def test_score_handles_agent_loop_disabled_result(self):
+        task = make_task({"type": "agent_loop"})
+        result = {
+            **make_result(""),
+            "agent_loop_score": 0.0,
+            "agent_loop_detail": "agent_loop disabled — rerun with --allow-code-exec",
+        }
+
+        scored = score_response(task, result, allow_code_exec=False)
+
+        assert scored["score"] == 0.0
+        assert "disabled" in scored["score_detail"]
+
+
 # ── numeric ───────────────────────────────────────────────────────────────────
 
 class TestNumeric:

@@ -14,6 +14,8 @@ Scoring types:
   json_keys        — parse JSON object, verify required keys exist
   line_count       — count non-empty lines, compare to expected
   code_exec        — extract code block, run it, look for PASS in stdout
+  repo_patch       — apply model edits to a fixture repo, inject hidden tests, run tests
+  agent_loop       — observed repo tool-use loop scored by hidden tests
   logprob_choice   — compare highest-probability token against expected answer (for base models)
   pass_at_k        — run inner_type k times; score via unbiased Chen et al. 2021 estimator
   workflow_trace   — verify JSON tool-call trace plus final/replayed mock state
@@ -30,6 +32,7 @@ import unicodedata
 from copy import deepcopy
 
 from benchmark.evaluation import annotate_pass, result_passed
+from benchmark.repo_patch import score_repo_patch
 from benchmark.utils import strip_thinking
 
 
@@ -204,8 +207,16 @@ def score_response(task: dict, run_result: dict, allow_code_exec: bool = False,
     scoring = task.get("scoring", {})
     method = scoring.get("type", "contains")
 
+    if method == "agent_loop":
+        scored["score"] = float(run_result.get("agent_loop_score", 0.0) or 0.0)
+        scored["score_detail"] = run_result.get("agent_loop_detail", "agent_loop: no detail")
+        return annotate_pass(scored)
+
     _code_exec_fn = _score_code_exec if allow_code_exec else (
         lambda r, s: (0.0, "code_exec disabled — rerun with --allow-code-exec")
+    )
+    _repo_patch_fn = score_repo_patch if allow_code_exec else (
+        lambda r, s: (0.0, "repo_patch disabled — rerun with --allow-code-exec")
     )
 
     dispatch = {
@@ -223,6 +234,7 @@ def score_response(task: dict, run_result: dict, allow_code_exec: bool = False,
         "json_schema":      _score_json_schema,
         "line_count":       _score_line_count,
         "code_exec":        _code_exec_fn,
+        "repo_patch":       _repo_patch_fn,
         "logprob_choice":   _score_logprob_choice,
         "workflow_trace":   _score_workflow_trace,
         "llm_judge":        lambda r, s: _score_llm_judge(r, s, task, judge_client, judge_model),

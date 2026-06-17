@@ -8,9 +8,9 @@ from benchmark.evaluation import CATEGORY_WEIGHTS
 from benchmark.reporter import _composite_score
 
 
-def make_result(category: str, score: float) -> dict:
+def make_result(category: str, score: float, **task_extra) -> dict:
     return {
-        "task": {"id": "t", "category": category},
+        "task": {"id": "t", "category": category, **task_extra},
         "score": score,
         "tps": None,
         "ttft_ms": None,
@@ -64,3 +64,14 @@ class TestCompositeScore:
             CATEGORY_WEIGHTS["math"] + CATEGORY_WEIGHTS["coding"]
         )
         assert c == pytest.approx(expected)
+
+    def test_default_composite_excludes_smoke_diagnostic_and_high_contamination(self):
+        results = [
+            make_result("coding", 1.0, benchmark_tier="leaderboard"),
+            make_result("coding", 0.0, benchmark_tier="smoke"),
+            make_result("coding", 0.0, benchmark_tier="diagnostic"),
+            make_result("coding", 0.0, contamination_risk="high"),
+        ]
+
+        assert _composite_score(results) == pytest.approx(1.0)
+        assert _composite_score(results, core_only=False) == pytest.approx(0.25)

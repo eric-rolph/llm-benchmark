@@ -8,7 +8,7 @@ from rich import box
 from rich.table import Table
 
 from benchmark.console import make_console
-from benchmark.evaluation import CATEGORY_WEIGHTS
+from benchmark.evaluation import CATEGORY_WEIGHTS, leaderboard_results
 from benchmark.utils import _avg
 
 console = make_console()
@@ -22,6 +22,8 @@ def _normalise_record(record: dict, model_hint: str | None = None) -> dict:
         "task_version": record.get("task_version"),
         "task_hash": record.get("task_hash"),
         "category": record.get("category", "?"),
+        "benchmark_tier": record.get("benchmark_tier", "leaderboard"),
+        "contamination_risk": record.get("contamination_risk"),
         "score": float(record.get("score", 0.0)),
         "tps": record.get("tps"),
         "ttft_ms": record.get("ttft_ms"),
@@ -67,6 +69,7 @@ def _mean_score(records: list[dict]) -> float | None:
 
 
 def _composite(records: list[dict]) -> float | None:
+    records = leaderboard_results(records)
     by_cat: dict[str, list[float]] = {}
     for record in records:
         by_cat.setdefault(record["category"], []).append(record["score"])
