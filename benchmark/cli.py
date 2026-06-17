@@ -30,6 +30,7 @@ Quick start (llm-bench, or python run.py from a checkout):
   llm-bench --compare old new        # compare two saved JSON/JSONL result files
   llm-bench --limit 5                # smoke-test: first 5 tasks per category
   llm-bench --resume                 # skip tasks already in the most recent results JSONL
+  llm-bench --max-api-cost 5.00      # stop launching new uncached tasks after provider-reported API cost reaches this USD cap
   llm-bench --exclude-before 2026-06-01  # only tasks introduced on/after a date (contamination control)
   llm-bench --ab-thinking            # run each task with thinking on vs off, report the delta (Ollama)
   llm-bench --audit-contamination    # probe models with task IDs only, flag memorised solutions
@@ -56,6 +57,7 @@ from benchmark.session import (
     load_cached_records,
     load_config,
     print_discovery_table,
+    resolve_api_cost_budget,
     run_model,
 )
 
@@ -136,6 +138,8 @@ def main():
                         help="Run only the first N tasks per category (smoke test / quick iteration)")
     parser.add_argument("--resume",         action="store_true",
                         help="Skip (model, task) pairs already in the most recent results JSONL (continue interrupted run)")
+    parser.add_argument("--max-api-cost",   type=float, default=None, metavar="USD",
+                        help="Stop launching new uncached tasks after provider-reported api_cost reaches this run budget")
     parser.add_argument("--exclude-before", default=None, metavar="DATE",
                         help="Run only tasks introduced on/after this date (YYYY-MM-DD); tasks without an 'introduced' tag are excluded (contamination control)")
     parser.add_argument("--ab-thinking",    action="store_true",
@@ -157,6 +161,11 @@ def main():
 
     config = load_config(args.config)
     bench_config = config.get("benchmark", {})
+    try:
+        api_cost_budget = resolve_api_cost_budget(bench_config, args.max_api_cost)
+    except ValueError as exc:
+        console.print(f"[red]{exc}[/red]")
+        sys.exit(1)
 
     # ── discover ──────────────────────────────────────────────────────────
     console.print(f"\n[bold]LLM Benchmark Suite[/bold]  [dim]Probing backends…[/dim]")
@@ -259,6 +268,8 @@ def main():
         f"[dim]{len(tasks)} tasks · categories: {cats} · "
         f"{len(all_pairs)} model(s)[/dim]\n"
     )
+    if api_cost_budget:
+        console.print(f"[dim]API cost cap: ${api_cost_budget.limit:.4f} for newly executed tasks[/dim]\n")
 
     # ── Arena mode ─────────────────────────────────────────────────────────
     if args.arena:
@@ -274,12 +285,14 @@ def main():
             judge_client=judge_client,
             judge_model=judge_model,
             no_autoload=args.no_autoload,
+            api_cost_budget=api_cost_budget,
         )
         print_arena_leaderboard(players)
         save_arena_results(players, args.output)
         return
 
     all_results: dict = {}
+    stop_for_budget = False
 
     # Incremental JSONL for crash safety (one line per task, written immediately)
     ts = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -299,6 +312,8 @@ def main():
     console.print(f"[dim]Streaming results → {jsonl_path}[/dim]\n")
 
     for model_info, backend in all_pairs:
+        if stop_for_budget:
+            break
         ab_capable = getattr(backend, "supports_thinking_ab", False)
         if args.ab_thinking and not ab_capable:
             console.print(
@@ -311,6 +326,9 @@ def main():
             arms = [("", None)]
 
         for arm_suffix, think_value in arms:
+            if api_cost_budget and api_cost_budget.exhausted:
+                stop_for_budget = True
+                break
             run_label = f"{model_info.id}{arm_suffix}"
             arm_tasks = (
                 tasks if think_value is None
@@ -331,10 +349,20 @@ def main():
                 judge_client=judge_client,
                 judge_model=judge_model,
                 result_label=run_label if arm_suffix else None,
+                api_cost_budget=api_cost_budget,
             )
             all_results[run_label] = model_results
 
             _print_model_summary(model_results)
+            if api_cost_budget and api_cost_budget.exhausted:
+                stop_for_budget = True
+                break
+
+        if stop_for_budget and api_cost_budget:
+            console.print(
+                f"[yellow]Stopped because API cost budget is exhausted "
+                f"(${api_cost_budget.spent:.4f} / ${api_cost_budget.limit:.4f}).[/yellow]\n"
+            )
 
     print_report(all_results)
     if args.ab_thinking:

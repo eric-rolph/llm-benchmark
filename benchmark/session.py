@@ -38,6 +38,44 @@ class ManualModelSpec:
     backend: str | None = None
 
 
+@dataclass
+class ApiCostBudget:
+    limit: float
+    spent: float = 0.0
+
+    @property
+    def exhausted(self) -> bool:
+        return self.spent >= self.limit
+
+    @property
+    def remaining(self) -> float:
+        return max(self.limit - self.spent, 0.0)
+
+    def add_result(self, result: dict) -> None:
+        raw_cost = result.get("api_cost")
+        if raw_cost in (None, ""):
+            return
+        try:
+            cost = float(raw_cost)
+        except (TypeError, ValueError):
+            return
+        if cost > 0:
+            self.spent += cost
+
+
+def resolve_api_cost_budget(bench_config: dict, cli_limit: float | None = None) -> ApiCostBudget | None:
+    raw_limit = cli_limit if cli_limit is not None else bench_config.get("max_api_cost")
+    if raw_limit in (None, ""):
+        return None
+    try:
+        limit = float(raw_limit)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"max_api_cost must be a non-negative number, got {raw_limit!r}") from exc
+    if limit < 0:
+        raise ValueError(f"max_api_cost must be non-negative, got {raw_limit!r}")
+    return ApiCostBudget(limit=limit)
+
+
 def load_config(path: str) -> dict:
     cfg_path = Path(path)
     if not cfg_path.exists():
@@ -332,6 +370,7 @@ def run_model(
     judge_client,
     judge_model: str | None,
     result_label: str | None = None,
+    api_cost_budget: ApiCostBudget | None = None,
 ) -> list[dict]:
     """
     Run all tasks for one model and return the list of scored results.
@@ -349,6 +388,14 @@ def run_model(
             model_results.append(from_record(task, cached_records[key]))
             continue
 
+        if api_cost_budget and api_cost_budget.exhausted:
+            console.print(
+                f"  [yellow]API cost budget exhausted "
+                f"(${api_cost_budget.spent:.4f} / ${api_cost_budget.limit:.4f}); "
+                f"stopping before {task['id']}[/yellow]"
+            )
+            break
+
         scoring_type = task.get("scoring", {}).get("type")
         if scoring_type == "agent_loop" and not allow_code_exec:
             raw = disabled_agent_loop_result(task, backend.name)
@@ -362,6 +409,8 @@ def run_model(
             model_results.append(scored)
             print_task_result(scored)
             append_jsonl(scored, jsonl_path)
+            if api_cost_budget:
+                api_cost_budget.add_result(scored)
             continue
 
         if runner is None:
@@ -415,5 +464,7 @@ def run_model(
         model_results.append(scored)
         print_task_result(scored)
         append_jsonl(scored, jsonl_path)
+        if api_cost_budget:
+            api_cost_budget.add_result(scored)
 
     return model_results

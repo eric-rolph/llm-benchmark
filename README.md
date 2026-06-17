@@ -20,7 +20,9 @@ This tool runs **deterministic, open tasks** against models you already have run
 Results are built for auditability: temperature=0 by default, tolerance-based numeric scoring, strict schema validation, task hashes, versioned JSONL records, execution traces, release/signal metadata, and run-to-run comparison.
 Hosted API runs also persist prompt/output/reasoning/total token counts and
 provider-reported `api_cost` when available, so frontier probes can be compared
-against a fixed spend budget.
+against a fixed spend budget. Set `benchmark.max_api_cost` or pass
+`--max-api-cost USD` to stop launching new uncached tasks after the reported
+run cost reaches the cap.
 
 ---
 
@@ -33,7 +35,7 @@ against a fixed spend budget.
 | **Scoring** | 21 scoring modes, including exact/numeric/regex/JSON checks, code execution, repo-patch execution, observed agent loops, workflow traces, pass@k, logprob choice, LLM judge, and rubric judge |
 | **Reproducibility** | Task version/hash tracking, release/signal metadata, opt-in Hugging Face auto-config, dataset dry-run safety, resumable JSONL logs |
 | **Outputs** | Rich console tables, JSON, CSV, crash-safe JSONL, optional HTML reports, result comparisons, arena ELO JSON |
-| **Hosted cost tracking** | Persists provider-reported prompt/output/reasoning/total tokens and `api_cost` when available |
+| **Hosted cost tracking** | Persists provider-reported prompt/output/reasoning/total tokens and `api_cost` when available; `max_api_cost` / `--max-api-cost` stops before the next uncached task once the cap is reached |
 
 ---
 
@@ -195,10 +197,13 @@ python .\run.py --config .\configs\openrouter-frontier-agent-loop.yaml --backend
 The profile runs the six frontier model IDs requested for coding/agent-loop
 validation: Claude Opus 4.7, GLM 5.2, Gemini 3.5 Flash, Kimi K2.6, Qwen 3.7
 Max, and MiniMax M3. It uses `runs_per_task: 1` and `resume: true` to keep
-cost bounded while preserving crash-safe JSONL output. The profile loads
-`.secrets/openrouter.env` when present, and `.secrets/` is ignored by git. For
-a single-model OpenRouter thinking-budget run, set backend or task-level
-`extra_body`, for example `reasoning.max_tokens: 512`.
+cost bounded while preserving crash-safe JSONL output, and sets
+`max_api_cost: 5.00` as a conservative default cap for newly executed tasks.
+Override it with `--max-api-cost USD` when you intentionally want a larger or
+smaller run. The profile loads `.secrets/openrouter.env` when present, and
+`.secrets/` is ignored by git. For a single-model OpenRouter thinking-budget
+run, set backend or task-level `extra_body`, for example
+`reasoning.max_tokens: 512`.
 
 ---
 
@@ -215,6 +220,7 @@ llm-bench --task capital_france     # single task by ID
 llm-bench --task task_a task_b      # multiple explicit task IDs
 llm-bench --limit 2                 # first 2 tasks per category (quick smoke test)
 llm-bench --resume                  # skip tasks already in the most recent results JSONL
+llm-bench --max-api-cost 5.00       # stop new uncached hosted calls after reported api_cost reaches this USD cap
 llm-bench --compare old.jsonl new.jsonl # compare two saved result files
 llm-bench --compare old.json new.json --compare-top 20 # show more task deltas
 llm-bench --no-autoload             # skip LM Studio model-load attempt

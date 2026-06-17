@@ -1027,4 +1027,28 @@ def score_pass_at_k(
         "score": round(estimate, 4),
         "score_detail": f"pass@{k}: {c}/{n} attempts passed (estimate={estimate:.3f})",
     }
+    for field in ("prompt_tokens", "completion_tokens", "reasoning_tokens", "total_tokens", "api_cost"):
+        total = _sum_numeric_result_field(run_results, field)
+        if total is not None:
+            result[field] = total
     return annotate_pass(result)
+
+
+def _sum_numeric_result_field(results: list[dict], field: str) -> int | float | None:
+    values = []
+    for result in results:
+        raw = result.get(field)
+        if raw in (None, ""):
+            continue
+        try:
+            values.append(float(raw))
+        except (TypeError, ValueError):
+            continue
+    if not values:
+        return None
+    total = sum(values)
+    if field != "api_cost" and total.is_integer():
+        return int(total)
+    if field == "api_cost":
+        return round(total, 8)
+    return total

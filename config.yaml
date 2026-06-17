@@ -107,6 +107,7 @@ benchmark:
   timeout: 180           # Seconds before a single request is abandoned
   runs_per_task: 3       # Each task is run N times; score = mean ± std (statistical reliability)
   resume: false          # Set true (or use --resume) to skip already-completed (model, task) pairs
+  max_api_cost: null      # Optional USD cap for provider-reported api_cost on newly executed hosted tasks
   hf_auto_config: false   # Opt-in: fetch generation_config.json/config.json from Hugging Face for model IDs containing "/"
 
 # LLM-as-judge (for tasks with scoring.type: llm_judge)

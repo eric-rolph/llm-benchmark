@@ -1,6 +1,19 @@
 import json
+from dataclasses import dataclass
 
+from benchmark import arena
 from benchmark.arena import ArenaPlayer, arena_results_payload, save_arena_results
+from benchmark.session import ApiCostBudget
+
+
+@dataclass
+class DummyModel:
+    id: str
+
+
+class DummyBackend:
+    name = "dummy"
+    config = {}
 
 
 def test_arena_results_payload_sorts_leaderboard_and_includes_history():
@@ -59,3 +72,33 @@ def test_save_arena_results_writes_json(tmp_path):
 def test_save_arena_results_skips_empty_arena(tmp_path):
     assert save_arena_results({}, tmp_path) is None
     assert list(tmp_path.iterdir()) == []
+
+
+def test_run_arena_stops_before_next_task_when_api_cost_budget_is_exhausted(monkeypatch):
+    calls = []
+
+    class FakeRunner:
+        def __init__(self, backend, model_id, bench_config):
+            self.model_id = model_id
+
+        def run_task(self, task):
+            calls.append((self.model_id, task["id"]))
+            return {"response": self.model_id, "api_cost": 0.01}
+
+    monkeypatch.setattr(arena, "ModelRunner", FakeRunner)
+    monkeypatch.setattr(arena, "_judge_pair", lambda **kwargs: ("A", "judge ok"))
+
+    players = arena.run_arena(
+        model_pairs=[(DummyModel("model-a"), DummyBackend()), (DummyModel("model-b"), DummyBackend())],
+        tasks=[
+            {"id": "task_1", "prompt": "one"},
+            {"id": "task_2", "prompt": "two"},
+        ],
+        bench_config={},
+        judge_client=object(),
+        judge_model="judge",
+        api_cost_budget=ApiCostBudget(limit=0.015),
+    )
+
+    assert calls == [("model-a", "task_1"), ("model-b", "task_1")]
+    assert players["model-a"].wins == 1

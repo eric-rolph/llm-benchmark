@@ -43,6 +43,7 @@ benchmark:
   timeout: 240
   runs_per_task: 1
   resume: true
+  max_api_cost: 5.00
   hf_auto_config: false
 
 judge:

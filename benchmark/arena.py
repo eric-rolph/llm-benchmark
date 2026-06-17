@@ -159,6 +159,7 @@ def run_arena(
     judge_client,
     judge_model: str | None,
     no_autoload: bool = False,
+    api_cost_budget=None,
 ) -> dict[str, ArenaPlayer]:
     """
     Run a round-robin arena: every pair of models competes on every task.
@@ -185,6 +186,13 @@ def run_arena(
     console.print(f"\n[bold]Arena Mode[/bold]  [dim]{len(model_ids)} models × {len(tasks)} tasks = {total_matchups} matchups[/dim]\n")
 
     for task in tasks:
+        if api_cost_budget and api_cost_budget.exhausted:
+            console.print(
+                f"[yellow]Arena stopped before {task['id']} because API cost budget is exhausted "
+                f"(${api_cost_budget.spent:.4f} / ${api_cost_budget.limit:.4f}).[/yellow]"
+            )
+            break
+
         # Pre-generate all responses for this task
         responses: dict[str, str] = {}
         for mid in model_ids:
@@ -192,7 +200,19 @@ def run_arena(
             if auto_load[mid]:
                 runners[mid].ensure_model_loaded()
             raw = runners[mid].run_task(task)
+            if api_cost_budget:
+                api_cost_budget.add_result(raw)
             responses[mid] = strip_thinking(raw.get("response", ""))
+
+            if api_cost_budget and api_cost_budget.exhausted and len(responses) < len(model_ids):
+                console.print(
+                    f"[yellow]Arena stopped during {task['id']} because API cost budget is exhausted "
+                    f"(${api_cost_budget.spent:.4f} / ${api_cost_budget.limit:.4f}).[/yellow]"
+                )
+                break
+
+        if len(responses) < len(model_ids):
+            break
 
         # Round-robin pairwise comparison
         for i in range(len(model_ids)):
@@ -227,6 +247,13 @@ def run_arena(
                     f"→ [bold]{winner_label[:30]}[/bold]  "
                     f"[dim]({completed}/{total_matchups})[/dim]"
                 )
+
+        if api_cost_budget and api_cost_budget.exhausted:
+            console.print(
+                f"[yellow]Arena stopped after {task['id']} because API cost budget is exhausted "
+                f"(${api_cost_budget.spent:.4f} / ${api_cost_budget.limit:.4f}).[/yellow]"
+            )
+            break
 
     return players
 

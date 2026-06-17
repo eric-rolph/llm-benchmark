@@ -44,7 +44,8 @@ The profile currently covers:
 
 Keep paid retries narrow. Prefer retrying only affected model/task pairs after
 harness changes, and use a fresh output directory when `resume: true` could
-reuse known-bad rows.
+reuse known-bad rows. The profile sets `benchmark.max_api_cost: 5.00`; override
+with `--max-api-cost USD` only for intentional larger runs.
 
 Recent signal from hard `agent_loop` probes:
 
@@ -64,6 +65,9 @@ Recent signal from hard `agent_loop` probes:
 - Hosted runs should preserve `prompt_tokens`, `completion_tokens`,
   `reasoning_tokens`, `total_tokens`, and provider-reported `api_cost` when
   available. OpenRouter exposes `usage.cost` on chat responses.
+- `benchmark.max_api_cost` / `--max-api-cost` caps newly executed hosted work
+  using accumulated provider-reported `api_cost`; cached resume rows do not
+  consume the current run budget.
 - For OpenRouter Chat Completions provider options, use backend or task-level
   `extra_body`, for example:
 
