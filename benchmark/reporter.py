@@ -11,11 +11,19 @@ from rich import box
 from rich.table import Table
 
 from benchmark.console import make_console
-from benchmark.evaluation import CATEGORY_WEIGHTS, E3_EXPECTED_TOKENS, result_passed
+from benchmark.evaluation import CATEGORY_WEIGHTS, E3_EXPECTED_TOKENS, leaderboard_results, result_passed
 from benchmark.result import to_record
 from benchmark.utils import _avg
 
 console = make_console()
+
+
+def _csv_value(value):
+    if isinstance(value, list):
+        return ";".join(str(item) for item in value)
+    if value is None:
+        return ""
+    return value
 
 
 def _e3_score(score: float, reasoning_tokens: int | None, category: str) -> float | None:
@@ -33,8 +41,10 @@ def _e3_score(score: float, reasoning_tokens: int | None, category: str) -> floa
     return score * math.log(expected + 1) / math.log(actual + 1)
 
 
-def _composite_score(results: list) -> float | None:
+def _composite_score(results: list, core_only: bool = True) -> float | None:
     """Weighted composite score across categories (harder categories carry more weight)."""
+    if core_only:
+        results = leaderboard_results(results)
     if not results:
         return None
     by_cat: dict = {}
@@ -120,10 +130,10 @@ def print_report(all_results: dict):
         total_row.append(f"[bold]{passed}/{len(rs)}  ({pct:.0f}%)[/bold]")
     acc.add_row(*total_row)
 
-    # Clean score row: exclude tasks with contamination_risk: high
-    clean_row = ["[dim]Excl. memorised[/dim]"]
+    # Headline score row: exclude smoke/diagnostic tasks and high-contamination tasks.
+    clean_row = ["[dim]Leaderboard core[/dim]"]
     for m in models:
-        rs = [r for r in all_results[m] if r["task"].get("contamination_risk") != "high"]
+        rs = leaderboard_results(all_results[m])
         if rs:
             passed = sum(1 for r in rs if result_passed(r))
             pct = sum(r["score"] for r in rs) / len(rs) * 100
@@ -212,7 +222,7 @@ def print_report(all_results: dict):
         # Weighted composite E3
         e3_total_row = ["[bold]E3 Composite ★[/bold]"]
         for m in models:
-            rs = all_results[m]
+            rs = leaderboard_results(all_results[m])
             by_cat: dict = {}
             for r in rs:
                 by_cat.setdefault(r["task"]["category"], []).append(r)
@@ -291,7 +301,7 @@ def print_report(all_results: dict):
     # differentiates poorly — SWE-bench lesson.
     model_means = []
     for m in models:
-        rs = all_results[m]
+        rs = leaderboard_results(all_results[m])
         if rs:
             model_means.append(sum(r["score"] for r in rs) / len(rs))
     if model_means and max(model_means) > 0.85:
@@ -386,18 +396,26 @@ def save_results(all_results: dict, output_dir: str):
     csv_path = out / f"results_{ts}.csv"
     with open(csv_path, "w", newline="", encoding="utf-8") as f:
         w = csv.writer(f)
-        w.writerow(["model", "task_id", "task_version", "category", "execution_surface",
-                    "scoring_type", "score", "pass_threshold", "passed",
-                    "tps", "ttft_ms", "total_ms", "score_detail"])
+        w.writerow(["model", "task_id", "task_version", "category", "benchmark_tier",
+                    "contamination_risk", "execution_surface", "source_signal",
+                    "human_minutes_estimate", "criticisms_addressed", "scoring_type",
+                    "score", "pass_threshold", "passed", "tps", "ttft_ms", "total_ms",
+                    "score_detail"])
         for model, results in all_results.items():
             for r in results:
+                task = r["task"]
                 w.writerow([
                     model,
-                    r["task"]["id"],
-                    r["task"].get("_version", ""),
-                    r["task"]["category"],
-                    r["task"].get("execution_surface", ""),
-                    r["task"].get("scoring", {}).get("type", ""),
+                    task["id"],
+                    task.get("_version", ""),
+                    task["category"],
+                    task.get("benchmark_tier", ""),
+                    task.get("contamination_risk", ""),
+                    task.get("execution_surface", ""),
+                    task.get("source_signal", task.get("_signal_source", "")),
+                    task.get("human_minutes_estimate", ""),
+                    _csv_value(task.get("criticisms_addressed", "")),
+                    task.get("scoring", {}).get("type", ""),
                     r["score"],
                     r.get("pass_threshold", ""),
                     result_passed(r),

@@ -1,5 +1,7 @@
 import pytest
 from benchmark.backends import create_backend
+from benchmark.backends.generic_openai import GenericOpenAIBackend
+from benchmark.backends.lm_studio import _EMBED_RE
 
 def test_backend_registry_instantiation():
     """Ensure the backend registry can instantiate all backends without breaking."""
@@ -24,3 +26,98 @@ def test_backend_invalid_name():
     mock_config = {"base_url": "http://localhost:8080"}
     with pytest.raises(ValueError, match="Unknown backend type"):
         create_backend("nonexistent_engine", mock_config)
+
+
+def test_lm_studio_embedding_fallback_does_not_reject_fable_coder_model():
+    """The e5 embedding shortcut must not match model names like fable5."""
+    assert _EMBED_RE.search("gemma-4-12b-coder-fable5-composer2.5-v1") is None
+    assert _EMBED_RE.search("text-embedding-nomic-embed-text-v1.5") is not None
+
+
+def test_openai_compatible_backend_uses_auth_header_for_availability(monkeypatch):
+    seen = []
+
+    class Response:
+        status_code = 200
+
+    def fake_get(url, **kwargs):
+        seen.append((url, kwargs))
+        return Response()
+
+    monkeypatch.setenv("LLM_BENCH_GENERIC_OPENAI_API_KEY", "test-key")
+    monkeypatch.setattr("benchmark.backends.base.requests.get", fake_get)
+
+    backend = GenericOpenAIBackend({
+        "name": "Generic OpenAI",
+        "base_url": "https://api.openai.com/v1",
+    })
+
+    assert backend.is_available() is True
+    assert seen[0][0] == "https://api.openai.com/health"
+    assert seen[0][1]["headers"] == {"Authorization": "Bearer test-key"}
+
+
+def test_openai_compatible_backend_uses_auth_header_for_model_discovery(monkeypatch):
+    seen = []
+
+    class Response:
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return {"data": [{"id": "gpt-5.5"}]}
+
+    def fake_get(url, **kwargs):
+        seen.append((url, kwargs))
+        return Response()
+
+    monkeypatch.setenv("LLM_BENCH_GENERIC_OPENAI_API_KEY", "test-key")
+    monkeypatch.setattr("benchmark.backends.base.requests.get", fake_get)
+
+    backend = GenericOpenAIBackend({
+        "name": "Generic OpenAI",
+        "base_url": "https://api.openai.com/v1",
+    })
+
+    models = backend.discover_models()
+
+    assert [m.id for m in models] == ["gpt-5.5"]
+    assert seen[0][0] == "https://api.openai.com/v1/models"
+    assert seen[0][1]["headers"] == {"Authorization": "Bearer test-key"}
+
+
+def test_openai_api_base_url_can_use_standard_openai_api_key(monkeypatch):
+    monkeypatch.delenv("LLM_BENCH_GENERIC_OPENAI_API_KEY", raising=False)
+    monkeypatch.setenv("OPENAI_API_KEY", "openai-key")
+
+    backend = GenericOpenAIBackend({
+        "name": "Generic OpenAI",
+        "base_url": "https://api.openai.com/v1",
+    })
+
+    assert backend._auth_headers() == {"Authorization": "Bearer openai-key"}
+
+
+def test_generic_openai_backend_can_opt_into_responses_api():
+    backend = GenericOpenAIBackend({
+        "name": "Generic OpenAI",
+        "base_url": "https://api.openai.com/v1",
+        "api": "responses",
+        "reasoning_effort": "high",
+        "text_verbosity": "low",
+        "max_output_tokens": 25000,
+    })
+
+    task = {
+        "id": "t1",
+        "prompt": "solve",
+        "reasoning_effort": "medium",
+        "max_output_tokens": 12000,
+    }
+
+    assert backend.use_responses_api("gpt-5.5", task) is True
+    assert backend.get_responses_params(task, {"max_tokens": 4096}) == {
+        "reasoning": {"effort": "medium"},
+        "text": {"verbosity": "low"},
+        "max_output_tokens": 12000,
+    }

@@ -1,7 +1,7 @@
 # LLM Benchmark Suite
 
 ![Python](https://img.shields.io/badge/python-3.11%2B-blue)
-![Tasks](https://img.shields.io/badge/tasks-104-green)
+![Tasks](https://img.shields.io/badge/tasks-118-green)
 ![Backends](https://img.shields.io/badge/backends-9-orange)
 ![License](https://img.shields.io/badge/license-MIT-lightgrey)
 
@@ -9,7 +9,7 @@ Local-first, reproducible benchmarking for LLMs you run yourself.
 
 `llm-benchmark` runs deterministic task suites against local and OpenAI-compatible inference servers, then writes comparison-friendly JSON, JSONL, CSV, and optional HTML reports. It supports **LM Studio, Ollama, llama.cpp, vLLM, SGLang, TensorRT-LLM, TGI, KTransformers, and generic OpenAI-compatible backends** with automatic model discovery.
 
-Current state: **104 tasks**, **8 scored categories**, **19 scoring modes**, crash-safe resume, pass@k, deterministic workflow-trace checks, LLM/rubric judging, result diffs, and pairwise arena mode with persisted ELO artifacts.
+Current state: **118 tasks**, **10 scored categories**, **21 scoring modes**, crash-safe resume, pass@k, deterministic workflow-trace checks, repo-patch execution, observed agent-loop execution, LLM/rubric judging, result diffs, and pairwise arena mode with persisted ELO artifacts.
 
 ---
 
@@ -25,9 +25,9 @@ Results are built for auditability: temperature=0 by default, tolerance-based nu
 
 | Area | Current state |
 |---|---|
-| **Tasks** | 104 tasks across math, knowledge, coding, agentic, reasoning, writing, summarization, and instruction-following |
+| **Tasks** | 118 tasks across math, knowledge, coding, repo-patch, observed agent-loop, agentic, reasoning, writing, summarization, and instruction-following |
 | **Backends** | LM Studio, Ollama, llama.cpp, vLLM, SGLang, TensorRT-LLM, TGI, KTransformers, generic OpenAI-compatible |
-| **Scoring** | 19 scoring modes, including exact/numeric/regex/JSON checks, code execution, workflow traces, pass@k, logprob choice, LLM judge, and rubric judge |
+| **Scoring** | 21 scoring modes, including exact/numeric/regex/JSON checks, code execution, repo-patch execution, observed agent loops, workflow traces, pass@k, logprob choice, LLM judge, and rubric judge |
 | **Reproducibility** | Task version/hash tracking, release/signal metadata, opt-in Hugging Face auto-config, dataset dry-run safety, resumable JSONL logs |
 | **Outputs** | Rich console tables, JSON, CSV, crash-safe JSONL, optional HTML reports, result comparisons, arena ELO JSON |
 
@@ -41,9 +41,11 @@ Results are built for auditability: temperature=0 by default, tolerance-based nu
 | **Auto-discovery** | Probes enabled backends, enumerates all available models |
 | **HF Auto-Config** | Opt-in fetch of Hugging Face `generation_config.json` parameters for tested models |
 | **Thinking model support** | Qwen3, DeepSeek-R1 — reasoning tokens captured, clean text scored |
-| **104 tasks, 8 categories** | Math, reasoning, coding, agentic, knowledge, writing, summarization, instruction-following, including vision-language tasks folded into reasoning/writing |
-| **19 scoring types** | numeric, exact, contains, multi_contains, fuzzy_match, regex, json_keys, json_schema, line_count, code_exec, word_count, contains_n, not_contains, ends_with, logprob_choice, workflow_trace, pass_at_k, llm_judge, rubric_judge |
+| **118 tasks, 10 categories** | Math, reasoning, coding, repo-patch, observed agent-loop, agentic, knowledge, writing, summarization, instruction-following, including vision-language tasks folded into reasoning/writing |
+| **21 scoring types** | numeric, exact, contains, multi_contains, fuzzy_match, regex, json_keys, json_schema, line_count, code_exec, repo_patch, agent_loop, word_count, contains_n, not_contains, ends_with, logprob_choice, workflow_trace, pass_at_k, llm_judge, rubric_judge |
 | **Workflow trace scoring** | `workflow_trace` grades ordered tool-call traces, required args, and optional replayed mock state |
+| **Repo-patch scoring** | `repo_patch` copies a local fixture repo, applies model file edits or unified diffs, injects hidden tests, and runs the configured test command |
+| **Observed agent-loop scoring** | `agent_loop` lets the model inspect/read/write/run tests through JSON actions, records the transcript, then injects hidden tests after `final` |
 | **Few-shot examples** | Add `few_shot:` to any task YAML to inject conversation history before the prompt |
 | **pass@k coding** | `scoring.type: pass_at_k` can run n samples and estimate pass@k with the unbiased Chen et al. (2021) estimator |
 | **LLM-as-judge** | CoT-then-score protocol — enable with `judge.enabled: true` in config |
@@ -52,7 +54,7 @@ Results are built for auditability: temperature=0 by default, tolerance-based nu
 | **Arena artifacts** | `--arena` runs pairwise ELO judging and persists leaderboard + match history JSON |
 | **Task versioning** | `metadata.version` in task YAML propagates to JSONL for audit trails |
 | **Execution surfaces** | Optional `execution_surface` and `source_signal` tags produce Claw-style surface breakdowns in reports |
-| **Composite score** | Weighted cross-category score in summary table (coding/math/reasoning weighted higher) |
+| **Composite score** | Weighted cross-category score in summary table (agent-loop, repo-patch, coding, and reasoning weighted higher) |
 | **Crash-safe results** | Incremental JSONL written after every task — restart safely |
 | **Latency histograms** | Per-category min/median/p95/max latency surfaced in summary table |
 | **CI integration** | `--ci-threshold` flag returns exit code 1 when score drops below target |
@@ -131,10 +133,50 @@ On PowerShell, `run.py` by itself will not execute from the current directory. P
 
 ---
 
+## Benchmark GPT-Class API Models
+
+Use the generic OpenAI-compatible backend when you want proprietary or hosted
+models scored beside local LM Studio/Ollama models. For OpenAI's API:
+
+```yaml
+backends:
+  generic_openai:
+    enabled: true
+    name: "Generic OpenAI"
+    base_url: "https://api.openai.com/v1"
+    auto_discover: true
+    api: "responses"
+    reasoning_effort: "medium"
+    text_verbosity: "low"
+    max_output_tokens: 25000
+
+models:
+  - "gpt-5.5"
+```
+
+Set the key with either `LLM_BENCH_GENERIC_OPENAI_API_KEY` or, for
+`https://api.openai.com/v1`, the standard `OPENAI_API_KEY`.
+
+```powershell
+$env:OPENAI_API_KEY = "sk-..."
+python .\run.py --backend generic_openai --model "gpt-5.5" --category agent_loop --allow-code-exec
+```
+
+`api: "responses"` routes requests through `client.responses.create`, which is
+the preferred path for GPT-5.5 reasoning and multi-turn/tool-style workflows.
+Set `reasoning_effort` per backend or per task when you want a low/medium/high
+comparison against local models.
+
+The same result JSON/CSV files can be compared against local runs with
+`--compare`, so GPT-class models and smaller local models share the same
+scoring and leaderboard tier policy.
+
+---
+
 ## All Commands
 
 ```
-llm-bench                           # auto-discover + run all 104 tasks
+llm-bench                           # auto-discover + run all 118 tasks
 llm-bench --discover                # probe backends, list models, exit
 llm-bench --dry-run                 # validate task files + check backends, no inference
 llm-bench --model "qwen3:8b"        # single model (all categories)
@@ -146,7 +188,7 @@ llm-bench --resume                  # skip tasks already in the most recent resu
 llm-bench --compare old.jsonl new.jsonl # compare two saved result files
 llm-bench --compare old.json new.json --compare-top 20 # show more task deltas
 llm-bench --no-autoload             # skip LM Studio model-load attempt
-llm-bench --allow-code-exec         # enable code_exec scoring (runs generated Python locally)
+llm-bench --allow-code-exec         # enable code_exec/repo_patch/agent_loop scoring (runs generated Python locally)
 llm-bench --ci-threshold 0.80       # exit 1 if overall score < 80%  (CI integration)
 llm-bench --html-report             # write an interactive HTML report
 llm-bench --arena                   # pairwise ELO arena using an LLM judge
@@ -177,13 +219,15 @@ llm-bench --dry-run
 |---|---|---|
 | `math` | 10 | `numeric` — extract first number, tolerance-based comparison |
 | `knowledge` | 18 | `exact` / `contains` / `numeric` |
-| `coding` | 15 | `code_exec` / `pass_at_k` — runs generated Python, looks for `PASS` in stdout |
+| `coding` | 18 | `code_exec` / `pass_at_k` — runs generated Python, looks for `PASS` in stdout |
+| `repo_patch` | 3 | `repo_patch` — applies model edits to fixture repos, injects hidden tests, runs tests |
+| `agent_loop` | 5 | `agent_loop` — observed JSON tool loop over fixture repos, visible tests during loop, hidden tests after final |
 | `agentic` | 11 | `code_exec` / `json_schema` / `rubric_judge` / `workflow_trace` |
-| `reasoning` | 12 | `contains` / `exact` / `fuzzy_match` / `word_count` / `llm_judge` |
+| `reasoning` | 15 | `contains` / `exact` / `fuzzy_match` / `word_count` / `llm_judge` |
 | `writing` | 13 | `line_count` / `regex` / `word_count` |
 | `summarization` | 10 | `contains` / `line_count` / `regex` |
 | `instruction_following` | 15 | `exact` / `contains` / `word_count` / `contains_n` / `not_contains` / `ends_with` |
-| **Total** | **104** | |
+| **Total** | **118** | |
 
 ---
 
@@ -205,6 +249,8 @@ llm-bench --dry-run
 | `json_schema` | Response JSON satisfies lightweight object/array schema checks |
 | `line_count` | Non-empty line count equals `count` |
 | `code_exec` | Generated code block executes and prints `PASS` (needs `--allow-code-exec`) |
+| `repo_patch` | Model diff/file edits are applied to a fixture repo and pass visible + hidden tests (needs `--allow-code-exec`) |
+| `agent_loop` | Model uses observed JSON tools against a fixture repo and final workspace passes hidden tests (needs `--allow-code-exec`) |
 | `logprob_choice` | Highest-probability one-token choice matches `answer`/`value` |
 | `workflow_trace` | JSON `tool_calls`, required args, and final or replayed `state` satisfy deterministic checks |
 | `pass_at_k` | Estimates pass@k over `n`/`samples` independent attempts using `inner_type` scoring |
@@ -259,6 +305,7 @@ llm-bench --compare results/results_20250118_143022.jsonl results/results_202501
 | **SGLang** | `GET /v1/models` | `POST /v1/chat/completions` | OpenAI compatible |
 | **TensorRT-LLM** | `GET /v1/models` | `POST /v1/chat/completions` | OpenAI compatible |
 | **KTransformers** | `GET /v1/models` | `POST /v1/chat/completions` | OpenAI compatible |
+| **Generic OpenAI** | `GET /v1/models` | `POST /v1/chat/completions` or `POST /v1/responses` | Responses usage `output_tokens_details.reasoning_tokens` |
 
 ---
 
@@ -399,7 +446,10 @@ The summary table now includes a **Composite ★** row — a weighted average ac
 
 | Category | Weight |
 |---|---|
+| agent_loop | 1.8 |
 | coding | 1.5 |
+| repo_patch | 1.6 |
+| agentic | 1.4 |
 | math | 1.2 |
 | reasoning | 1.2 |
 | knowledge | 1.0 |

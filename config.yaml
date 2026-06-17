@@ -67,12 +67,19 @@ backends:
     base_url: "http://localhost:8080"
     auto_discover: true         # Queries /v1/models
 
-  # Generic OpenAI-compatible API (e.g. custom HF Transformers server)  ─────
+  # Generic OpenAI-compatible API (OpenAI, OpenRouter, custom HF server)  ───
   generic_openai:
     enabled: false
     name: "Generic OpenAI"
     base_url: "http://localhost:5000"
     auto_discover: true         # Queries /v1/models
+    # For OpenAI's API, use base_url: "https://api.openai.com/v1"
+    # and set LLM_BENCH_GENERIC_OPENAI_API_KEY or OPENAI_API_KEY.
+    # For GPT-5.5-style reasoning/model-agent evals, set:
+    # api: "responses"
+    # reasoning_effort: "medium" # low|medium|high|xhigh, model-dependent
+    # text_verbosity: "low"
+    # max_output_tokens: 25000
 
 # Optional manual model list.  Leave empty [] to rely on auto-discovery.
 # Format:  "model-id"  (bare string, matched against any enabled backend)
@@ -86,6 +93,7 @@ models: []
 #   - "qwen3.5-27b-claude-4.6-opus-reasoning-distilled"
 #   - "llama3.2:latest"          # Ollama-style
 #   - "qwen3:8b"                 # Ollama-style
+#   - "gpt-5.5"                  # OpenAI API via generic_openai
 
 benchmark:
   temperature: 0.0       # Deterministic — required for reproducible scoring (Auto-overridden by HF generation_config.json if found)

@@ -98,6 +98,35 @@ def test_run_model_hydrates_fully_cached_results_without_runner(monkeypatch, tmp
     assert results[0]["score_detail"] == "cached pass"
 
 
+def test_agent_loop_without_allow_code_exec_does_not_instantiate_runner(monkeypatch, tmp_path):
+    task = _task(
+        category="agent_loop",
+        execution_surface="observed_agent_loop",
+        scoring={"type": "agent_loop"},
+    )
+
+    def fail_model_runner(*args, **kwargs):
+        raise AssertionError("disabled agent_loop should not instantiate ModelRunner")
+
+    monkeypatch.setattr(session, "ModelRunner", fail_model_runner)
+
+    results = session.run_model(
+        model_info=DummyModel(),
+        backend=DummyBackend(),
+        tasks=[task],
+        bench_config={},
+        cached_records={},
+        jsonl_path=tmp_path / "results.jsonl",
+        allow_code_exec=False,
+        no_autoload=True,
+        judge_client=None,
+        judge_model=None,
+    )
+
+    assert results[0]["score"] == 0.0
+    assert "disabled" in results[0]["score_detail"]
+
+
 def test_pass_at_k_uses_samples_count_when_larger_than_k(monkeypatch, tmp_path):
     calls = []
 

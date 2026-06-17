@@ -46,7 +46,7 @@ from pathlib import Path
 from benchmark.arena import run_arena, print_arena_leaderboard, save_arena_results
 from benchmark.compare import compare_result_files
 from benchmark.console import make_console
-from benchmark.evaluation import result_passed
+from benchmark.evaluation import leaderboard_results, result_passed
 from benchmark.loader import available_categories, filter_introduced_since, load_tasks
 from benchmark.reporter import print_ab_thinking_summary, print_report, save_results, save_html_report
 from benchmark.session import (
@@ -333,8 +333,12 @@ def main():
     # ── CI threshold check ────────────────────────────────────────────────
     if args.ci_threshold is not None:
         all_scored = [r for rs in all_results.values() for r in rs]
-        if all_scored:
-            ratio = sum(r["score"] for r in all_scored) / len(all_scored)
+        scored_for_ci = leaderboard_results(all_scored)
+        if all_scored and not scored_for_ci:
+            console.print("[yellow]CI threshold: no leaderboard-core rows; falling back to all scored tasks.[/yellow]")
+            scored_for_ci = all_scored
+        if scored_for_ci:
+            ratio = sum(r["score"] for r in scored_for_ci) / len(scored_for_ci)
             pct = ratio * 100
             if ratio < args.ci_threshold:
                 console.print(

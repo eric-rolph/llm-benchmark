@@ -21,7 +21,10 @@ from benchmark.backends.base import Backend, ModelInfo
 
 # Keyword patterns that identify embedding / encoder-only models by name.
 # Used as a fallback when the LM Studio v0 API is unavailable.
-_EMBED_RE = re.compile(r"embed(?:ding)?|encoder|e5-|bge-|gte-|minilm", re.IGNORECASE)
+_EMBED_RE = re.compile(
+    r"embed(?:ding)?|encoder|(?:^|[/_-])e5-|(?:^|[/_-])bge-|(?:^|[/_-])gte-|minilm",
+    re.IGNORECASE,
+)
 
 
 class LMStudioBackend(Backend):

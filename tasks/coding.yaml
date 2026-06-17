@@ -116,6 +116,7 @@ tasks:
 
   - id: code_005
     category: coding
+    benchmark_tier: smoke
     difficulty: easy
     contamination_risk: high
     description: "Two-sum returning sorted index pair"
@@ -195,6 +196,7 @@ tasks:
 
   - id: code_008
     category: coding
+    benchmark_tier: smoke
     difficulty: easy
     description: "Stack class"
     prompt: |
@@ -249,6 +251,7 @@ tasks:
 
   - id: code_010
     category: coding
+    benchmark_tier: smoke
     difficulty: easy
     description: "Run-length encoding"
     prompt: |
@@ -289,6 +292,7 @@ tasks:
 
   - id: code_012
     category: coding
+    benchmark_tier: diagnostic
     difficulty: easy
     description: "Count vowels (pass@k demo)"
     prompt: |
@@ -314,6 +318,7 @@ tasks:
 
     introduced: 2026-04-27
     category: coding
+    benchmark_tier: fresh
     difficulty: hard
     description: "Thread-safe LRU cache — stdlib only (threading.Lock + OrderedDict)"
     prompt: |
@@ -384,6 +389,7 @@ tasks:
 
     introduced: 2026-04-27
     category: coding
+    benchmark_tier: fresh
     difficulty: hard
     description: "Recursive descent expression parser — no eval()"
     prompt: |
@@ -418,6 +424,7 @@ tasks:
 
     introduced: 2026-04-27
     category: coding
+    benchmark_tier: fresh
     difficulty: hard
     description: "Consistent hashing ring with virtual nodes — stdlib only"
     prompt: |
@@ -482,6 +489,7 @@ tasks:
 
     introduced: 2026-06-04
     category: coding
+    benchmark_tier: fresh
     difficulty: hard
     description: "Word Dictionary (Trie) with wildcard search"
     prompt: |
@@ -510,6 +518,7 @@ tasks:
 
     introduced: 2026-06-04
     category: coding
+    benchmark_tier: fresh
     difficulty: hard
     description: "Miniature regular expression matching engine"
     prompt: |
@@ -534,6 +543,7 @@ tasks:
 
     introduced: 2026-06-04
     category: coding
+    benchmark_tier: fresh
     difficulty: hard
     description: "Serialize and Deserialize Binary Tree"
     prompt: |

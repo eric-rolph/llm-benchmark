@@ -12,6 +12,7 @@ import json
 import os
 import statistics
 import sys
+from dataclasses import dataclass
 from pathlib import Path
 
 import yaml
@@ -19,6 +20,7 @@ from rich.table import Table
 from rich import box
 
 from benchmark.backends import create_backend
+from benchmark.agent_loop import disabled_agent_loop_result
 from benchmark.backends.base import ModelInfo
 from benchmark.console import make_console
 from benchmark.evaluation import annotate_pass
@@ -30,12 +32,46 @@ from benchmark.scorer import score_response, score_pass_at_k
 console = make_console()
 
 
+@dataclass(frozen=True)
+class ManualModelSpec:
+    id: str
+    backend: str | None = None
+
+
 def load_config(path: str) -> dict:
     cfg_path = Path(path)
     if not cfg_path.exists():
         console.print(f"[red]Config not found: {cfg_path}[/red]")
         sys.exit(1)
     return yaml.safe_load(cfg_path.read_text(encoding="utf-8"))
+
+
+def _parse_manual_model_specs(raw_models: list | None) -> list[ManualModelSpec]:
+    specs: list[ManualModelSpec] = []
+    for item in raw_models or []:
+        if isinstance(item, str):
+            model_id = item.strip()
+            if model_id:
+                specs.append(ManualModelSpec(id=model_id))
+            continue
+        if isinstance(item, dict):
+            raw_id = item.get("id", item.get("model"))
+            model_id = str(raw_id or "").strip()
+            backend = str(item.get("backend") or "").strip().lower() or None
+            if model_id:
+                specs.append(ManualModelSpec(id=model_id, backend=backend))
+            continue
+        console.print(f"[yellow]Ignoring invalid models entry: {item!r}[/yellow]")
+    return specs
+
+
+def _backend_matches(spec_backend: str | None, backend_type: str, backend: object) -> bool:
+    if not spec_backend:
+        return True
+    return spec_backend in {
+        backend_type.lower(),
+        str(getattr(backend, "name", "")).lower(),
+    }
 
 
 def discover_models(config: dict, backend_filter: str | None = None) -> list[tuple[ModelInfo, object]]:
@@ -45,13 +81,14 @@ def discover_models(config: dict, backend_filter: str | None = None) -> list[tup
     """
     pairs: list[tuple[ModelInfo, object]] = []
     backends_cfg: dict = config.get("backends", {})
-    manual_ids: list[str] = config.get("models", [])
-    reachable_backends: list = []
+    manual_specs = _parse_manual_model_specs(config.get("models", []))
+    reachable_backends: list[tuple[str, object]] = []
+    found_specs: set[ManualModelSpec] = set()
 
     for backend_type, backend_cfg in backends_cfg.items():
         if not backend_cfg.get("enabled", False):
             continue
-        if backend_filter and backend_filter.lower() not in (backend_type, backend_cfg.get("name", "").lower()):
+        if backend_filter and backend_filter.lower() not in (backend_type.lower(), backend_cfg.get("name", "").lower()):
             continue
 
         try:
@@ -70,25 +107,52 @@ def discover_models(config: dict, backend_filter: str | None = None) -> list[tup
             discovered = []
 
         # Apply manual model filter if set
-        if manual_ids:
-            discovered = [m for m in discovered if m.id in manual_ids]
+        if manual_specs:
+            allowed_ids = {
+                spec.id
+                for spec in manual_specs
+                if _backend_matches(spec.backend, backend_type, backend)
+            }
+            discovered = [m for m in discovered if m.id in allowed_ids]
 
         for m in discovered:
             pairs.append((m, backend))
-        reachable_backends.append(backend)
+            for spec in manual_specs:
+                if spec.id == m.id and _backend_matches(spec.backend, backend_type, backend):
+                    found_specs.add(spec)
+        reachable_backends.append((backend_type, backend))
 
-    # Manual models that no backend discovered: synthesize once, on the first
-    # reachable backend — one phantom per remaining backend would create
-    # duplicate pairs that overwrite real runs in all_results (keyed by id).
-    if manual_ids and reachable_backends:
-        found_ids = {m.id for m, _ in pairs}
-        first = reachable_backends[0]
-        for mid in manual_ids:
-            if mid not in found_ids:
-                pairs.append((ModelInfo(id=mid, name=mid, backend_name=first.name), first))
+    # Manual models that no backend discovered can only be synthesized when the
+    # target backend is unambiguous. This prevents hosted model ids like
+    # "gpt-5.5" from being accidentally sent to LM Studio when OpenAI discovery
+    # is unavailable or unauthenticated.
+    if manual_specs and reachable_backends:
+        for spec in manual_specs:
+            if spec in found_specs:
+                continue
+            matching_backends = [
+                (backend_type, backend)
+                for backend_type, backend in reachable_backends
+                if _backend_matches(spec.backend, backend_type, backend)
+            ]
+            if len(matching_backends) == 1:
+                _, backend = matching_backends[0]
+                pairs.append((ModelInfo(id=spec.id, name=spec.id, backend_name=backend.name), backend))
+                found_specs.add(spec)
+                continue
+            if spec.backend:
+                console.print(
+                    f"[yellow]Manual model {spec.id!r} requested backend {spec.backend!r}, "
+                    "but that backend is not reachable.[/yellow]"
+                )
+            else:
+                console.print(
+                    f"[yellow]Manual model {spec.id!r} was not discovered and multiple "
+                    "backends are reachable; use --backend or a backend-qualified models entry.[/yellow]"
+                )
 
     # If no backends are enabled, fall back to manual list with no backend
-    if not pairs and manual_ids and not backend_filter:
+    if not pairs and manual_specs and not backend_filter:
         console.print("[yellow]No enabled backends are reachable. Manual model list requires a reachable backend.[/yellow]")
 
     return pairs
@@ -246,12 +310,26 @@ def run_model(
             model_results.append(from_record(task, cached_records[key]))
             continue
 
+        scoring_type = task.get("scoring", {}).get("type")
+        if scoring_type == "agent_loop" and not allow_code_exec:
+            raw = disabled_agent_loop_result(task, backend.name)
+            scored = score_response(
+                task, raw,
+                allow_code_exec=allow_code_exec,
+                judge_client=judge_client,
+                judge_model=judge_model,
+            )
+            scored["model_id"] = label
+            model_results.append(scored)
+            print_task_result(scored)
+            append_jsonl(scored, jsonl_path)
+            continue
+
         if runner is None:
             runner = ModelRunner(backend, model_info.id, bench_config)
             if backend.config.get("auto_load", False) and not no_autoload:
                 runner.ensure_model_loaded()
 
-        scoring_type = task.get("scoring", {}).get("type")
         if scoring_type == "pass_at_k":
             k = task["scoring"].get("k", bench_config.get("runs_per_task", 3))
             n = task["scoring"].get(

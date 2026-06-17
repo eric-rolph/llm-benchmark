@@ -10,10 +10,10 @@ measures it).
 """
 from __future__ import annotations
 
-from benchmark.evaluation import annotate_pass, result_passed, task_pass_threshold
+from benchmark.evaluation import annotate_pass, result_passed, task_pass_threshold, task_tier
 from benchmark.utils import task_fingerprint
 
-RESPONSE_PREVIEW_CHARS = 300
+RESPONSE_PREVIEW_CHARS = 4000
 
 
 def to_record(result: dict) -> dict:
@@ -27,8 +27,12 @@ def to_record(result: dict) -> dict:
         "task_version": task.get("_version"),
         "task_hash": task_fingerprint(task),
         "category":  task["category"],
+        "benchmark_tier": task_tier(task),
+        "contamination_risk": task.get("contamination_risk"),
         "execution_surface": task.get("execution_surface"),
         "source_signal": task.get("source_signal", task.get("_signal_source")),
+        "human_minutes_estimate": task.get("human_minutes_estimate"),
+        "criticisms_addressed": task.get("criticisms_addressed"),
         "signal_snapshot": task.get("_signal_snapshot"),
         "release": task.get("_release"),
         "scoring_type": task.get("scoring", {}).get("type"),
