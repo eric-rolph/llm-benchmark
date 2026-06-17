@@ -292,6 +292,28 @@ def test_agent_loop_accepts_namespaced_function_call_action(tmp_path):
     assert result["execution_trace"]["tool_calls"][0]["args"] == {"path": "."}
 
 
+def test_agent_loop_accepts_summary_only_json_as_final_action(tmp_path):
+    task = _task(tmp_path, max_steps=3)
+    client = FakeClient([
+        (
+            '{"tool": "write_file", "args": {"path": "calc/stats.py", '
+            '"content": "def mean(values):\\n    return sum(values) / len(values)\\n"}}'
+        ),
+        '{"tool": "run_tests", "args": {}}',
+        '{"summary": "fixed mean and tests pass"}',
+    ])
+
+    result = _run(client, task)
+
+    assert result["agent_loop_score"] == 1.0
+    assert result["response"] == "fixed mean and tests pass"
+    assert [call["tool"] for call in result["execution_trace"]["tool_calls"]] == [
+        "write_file",
+        "run_tests",
+        "final",
+    ]
+
+
 def test_agent_loop_function_call_decodes_common_string_escapes(tmp_path):
     task = _task(tmp_path, max_steps=3)
     client = FakeClient([
