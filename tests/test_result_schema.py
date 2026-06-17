@@ -33,8 +33,11 @@ def _result(**updates):
         "tps": 42.5,
         "ttft_ms": 12.0,
         "total_ms": 100.0,
+        "prompt_tokens": 2,
         "completion_tokens": 3,
         "reasoning_tokens": 7,
+        "total_tokens": 12,
+        "api_cost": 0.0042,
         "peak_vram_mb": 2048,
         "avg_gpu_util": 55.0,
         "logprob_detail": None,
@@ -52,8 +55,8 @@ def test_record_round_trip_preserves_scoring_and_metrics():
 
     for field in (
         "model_id", "backend", "score", "passed", "score_detail",
-        "tps", "ttft_ms", "total_ms", "completion_tokens",
-        "reasoning_tokens", "peak_vram_mb", "avg_gpu_util",
+        "tps", "ttft_ms", "total_ms", "prompt_tokens", "completion_tokens",
+        "reasoning_tokens", "total_tokens", "api_cost", "peak_vram_mb", "avg_gpu_util",
     ):
         assert hydrated[field] == result[field], field
     assert hydrated["response"] == "A"

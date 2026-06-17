@@ -41,6 +41,11 @@ def _e3_score(score: float, reasoning_tokens: int | None, category: str) -> floa
     return score * math.log(expected + 1) / math.log(actual + 1)
 
 
+def _sum_or_none(values: list) -> float | None:
+    present = [float(v) for v in values if v is not None]
+    return sum(present) if present else None
+
+
 def _composite_score(results: list, core_only: bool = True) -> float | None:
     """Weighted composite score across categories (harder categories carry more weight)."""
     if core_only:
@@ -185,6 +190,7 @@ def print_report(all_results: dict):
         ("Avg Total (ms)",     lambda rs: _avg([r.get("total_ms") for r in rs])),
         ("Avg Output Tokens",  lambda rs: _avg([r.get("completion_tokens") for r in rs])),
         ("Avg Think Tokens",   lambda rs: _avg([r.get("reasoning_tokens") for r in rs])),
+        ("Total API Cost",     lambda rs: _sum_or_none([r.get("api_cost") for r in rs])),
         ("Peak VRAM (MB)",     lambda rs: max([r.get("peak_vram_mb") or 0 for r in rs] + [0]) or None),
         ("Avg GPU Util (%)",   lambda rs: _avg([r.get("avg_gpu_util") for r in rs if r.get("avg_gpu_util") is not None])),
     ]
@@ -192,7 +198,12 @@ def print_report(all_results: dict):
         row = [label]
         for m in models:
             val = fn(all_results[m])
-            row.append(f"{val:.1f}" if val is not None else "—")
+            if val is None:
+                row.append("—")
+            elif label == "Total API Cost":
+                row.append(f"${val:.4f}")
+            else:
+                row.append(f"{val:.1f}")
         perf.add_row(*row)
     console.print(perf)
 
@@ -400,6 +411,8 @@ def save_results(all_results: dict, output_dir: str):
                     "contamination_risk", "execution_surface", "source_signal",
                     "human_minutes_estimate", "criticisms_addressed", "scoring_type",
                     "score", "pass_threshold", "passed", "tps", "ttft_ms", "total_ms",
+                    "prompt_tokens", "completion_tokens", "reasoning_tokens", "total_tokens",
+                    "api_cost",
                     "score_detail"])
         for model, results in all_results.items():
             for r in results:
@@ -422,6 +435,11 @@ def save_results(all_results: dict, output_dir: str):
                     r.get("tps", ""),
                     r.get("ttft_ms", ""),
                     r.get("total_ms", ""),
+                    r.get("prompt_tokens", ""),
+                    r.get("completion_tokens", ""),
+                    r.get("reasoning_tokens", ""),
+                    r.get("total_tokens", ""),
+                    r.get("api_cost", ""),
                     r.get("score_detail", ""),
                 ])
     console.print(f"CSV  → [cyan]{csv_path}[/cyan]")

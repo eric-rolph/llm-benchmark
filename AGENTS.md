@@ -61,6 +61,9 @@ Recent signal from hard `agent_loop` probes:
   section markup, and reasoning-only fields.
 - Non-stream agent-loop runs should count
   `usage.completion_tokens_details.reasoning_tokens` when present.
+- Hosted runs should preserve `prompt_tokens`, `completion_tokens`,
+  `reasoning_tokens`, `total_tokens`, and provider-reported `api_cost` when
+  available. OpenRouter exposes `usage.cost` on chat responses.
 - For OpenRouter Chat Completions provider options, use backend or task-level
   `extra_body`, for example:
 

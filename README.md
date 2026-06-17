@@ -18,6 +18,9 @@ Current state: **118 tasks**, **10 scored categories**, **21 scoring modes**, cr
 Most LLM leaderboards measure proprietary models on curated benchmarks you can't reproduce.
 This tool runs **deterministic, open tasks** against models you already have running on your own machine or on an OpenAI-compatible server you control.
 Results are built for auditability: temperature=0 by default, tolerance-based numeric scoring, strict schema validation, task hashes, versioned JSONL records, execution traces, release/signal metadata, and run-to-run comparison.
+Hosted API runs also persist prompt/output/reasoning/total token counts and
+provider-reported `api_cost` when available, so frontier probes can be compared
+against a fixed spend budget.
 
 ---
 
@@ -30,6 +33,7 @@ Results are built for auditability: temperature=0 by default, tolerance-based nu
 | **Scoring** | 21 scoring modes, including exact/numeric/regex/JSON checks, code execution, repo-patch execution, observed agent loops, workflow traces, pass@k, logprob choice, LLM judge, and rubric judge |
 | **Reproducibility** | Task version/hash tracking, release/signal metadata, opt-in Hugging Face auto-config, dataset dry-run safety, resumable JSONL logs |
 | **Outputs** | Rich console tables, JSON, CSV, crash-safe JSONL, optional HTML reports, result comparisons, arena ELO JSON |
+| **Hosted cost tracking** | Persists provider-reported prompt/output/reasoning/total tokens and `api_cost` when available |
 
 ---
 

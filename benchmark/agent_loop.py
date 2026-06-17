@@ -23,7 +23,8 @@ from benchmark.repo_patch import (
 from benchmark.responses_api import (
     messages_to_responses_input,
     response_output_text,
-    response_usage_tokens,
+    response_usage_metadata,
+    usage_metadata,
 )
 
 
@@ -72,6 +73,9 @@ def run_agent_loop(
     t_start = time.perf_counter()
     completion_tokens = 0
     reasoning_tokens = 0
+    prompt_tokens = 0
+    total_tokens = 0
+    api_cost = 0.0
     trace = {
         "surface": task.get("execution_surface", "observed_agent_loop"),
         "scoring_type": "agent_loop",
@@ -93,7 +97,7 @@ def run_agent_loop(
 
         for step in range(1, max_steps + 1):
             try:
-                content, tokens, step_reasoning_tokens = _call_model(
+                content, usage_meta = _call_model(
                     client,
                     model_id,
                     messages,
@@ -106,10 +110,14 @@ def run_agent_loop(
             except Exception as exc:
                 return _finish_result(
                     task, backend_name, trace, t_start, completion_tokens,
-                    reasoning_tokens, 0.0, f"agent_loop API error: {exc}", final_summary,
+                    reasoning_tokens, prompt_tokens, total_tokens, api_cost,
+                    0.0, f"agent_loop API error: {exc}", final_summary,
                 )
-            completion_tokens += tokens
-            reasoning_tokens += step_reasoning_tokens
+            completion_tokens += usage_meta["completion_tokens"]
+            reasoning_tokens += usage_meta["reasoning_tokens"]
+            prompt_tokens += usage_meta["prompt_tokens"]
+            total_tokens += usage_meta["total_tokens"]
+            api_cost += usage_meta["api_cost"] or 0.0
 
             action = _extract_action(content)
             if action is None:
@@ -121,7 +129,8 @@ def run_agent_loop(
                 })
                 return _finish_result(
                     task, backend_name, trace, t_start, completion_tokens,
-                    reasoning_tokens, 0.0, f"agent_loop: invalid action JSON: {preview}", preview,
+                    reasoning_tokens, prompt_tokens, total_tokens, api_cost,
+                    0.0, f"agent_loop: invalid action JSON: {preview}", preview,
                 )
 
             tool = str(action.get("tool", "")).strip()
@@ -140,7 +149,8 @@ def run_agent_loop(
                 score, final_detail = _score_final_workspace(workspace, scoring, command)
                 return _finish_result(
                     task, backend_name, trace, t_start, completion_tokens,
-                    reasoning_tokens, score, final_detail, final_summary,
+                    reasoning_tokens, prompt_tokens, total_tokens, api_cost,
+                    score, final_detail, final_summary,
                 )
 
             messages.append({"role": "assistant", "content": content})
@@ -149,12 +159,14 @@ def run_agent_loop(
             if should_stop:
                 return _finish_result(
                     task, backend_name, trace, t_start, completion_tokens,
-                    reasoning_tokens, 0.0, observation, final_summary,
+                    reasoning_tokens, prompt_tokens, total_tokens, api_cost,
+                    0.0, observation, final_summary,
                 )
 
         return _finish_result(
             task, backend_name, trace, t_start, completion_tokens,
-            reasoning_tokens, 0.0, f"agent_loop: max steps ({max_steps}) reached without final", final_summary,
+            reasoning_tokens, prompt_tokens, total_tokens, api_cost,
+            0.0, f"agent_loop: max steps ({max_steps}) reached without final", final_summary,
         )
 
 
@@ -193,7 +205,7 @@ def _call_model(
     *,
     use_responses_api: bool = False,
     responses_params: dict | None = None,
-) -> tuple[str, int, int]:
+) -> tuple[str, dict]:
     if use_responses_api:
         response = client.responses.create(
             model=model_id,
@@ -201,8 +213,7 @@ def _call_model(
             timeout=bench_config.get("timeout", 180),
             **(responses_params or {}),
         )
-        output_tokens, reasoning_tokens = response_usage_tokens(response)
-        return response_output_text(response), output_tokens, reasoning_tokens
+        return response_output_text(response), response_usage_metadata(response)
 
     response = client.chat.completions.create(
         model=model_id,
@@ -221,10 +232,7 @@ def _call_model(
         getattr(message, "reasoning", None),
     )
     usage = getattr(response, "usage", None)
-    tokens = int(getattr(usage, "completion_tokens", 0) or 0)
-    details = getattr(usage, "completion_tokens_details", None)
-    reasoning_tokens = int(getattr(details, "reasoning_tokens", 0) or 0) if details else 0
-    return content, tokens, reasoning_tokens
+    return content, usage_metadata(usage)
 
 
 def _first_nonblank(*values) -> str:
@@ -672,6 +680,9 @@ def _finish_result(
     t_start: float,
     completion_tokens: int,
     reasoning_tokens: int,
+    prompt_tokens: int,
+    total_tokens: int,
+    api_cost: float,
     score: float,
     detail: str,
     summary: str,
@@ -682,6 +693,9 @@ def _finish_result(
         "elapsed_ms": round(total_ms, 1),
         "completion_tokens": completion_tokens,
         "reasoning_tokens": reasoning_tokens,
+        "prompt_tokens": prompt_tokens,
+        "total_tokens": total_tokens,
+        "api_cost": round(api_cost, 8) if api_cost else None,
         "score": score,
     })
     return _result(
@@ -693,6 +707,9 @@ def _finish_result(
         total_ms=round(total_ms, 1),
         completion_tokens=completion_tokens,
         reasoning_tokens=reasoning_tokens,
+        prompt_tokens=prompt_tokens,
+        total_tokens=total_tokens,
+        api_cost=round(api_cost, 8) if api_cost else None,
         trace=trace,
     )
 
@@ -704,8 +721,11 @@ def _result(
     detail: str,
     response: str = "",
     total_ms: float | None = None,
+    prompt_tokens: int = 0,
     completion_tokens: int = 0,
     reasoning_tokens: int = 0,
+    total_tokens: int = 0,
+    api_cost: float | None = None,
     trace: dict | None = None,
 ) -> dict:
     return {
@@ -715,8 +735,11 @@ def _result(
         "ttft_ms": None,
         "total_ms": total_ms,
         "tps": round(completion_tokens / (total_ms / 1000), 1) if completion_tokens and total_ms else None,
+        "prompt_tokens": prompt_tokens,
         "completion_tokens": completion_tokens,
         "reasoning_tokens": reasoning_tokens,
+        "total_tokens": total_tokens,
+        "api_cost": api_cost,
         "backend": backend_name,
         "agent_loop_score": score,
         "agent_loop_detail": detail,

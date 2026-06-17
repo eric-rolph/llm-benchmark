@@ -64,18 +64,59 @@ def response_reasoning_preview(response: Any, limit: int = 200) -> str | None:
 
 def response_usage_tokens(response: Any) -> tuple[int, int]:
     """Return (output_tokens, reasoning_tokens) from Responses or chat-shaped usage."""
-    usage = getattr(response, "usage", None)
-    if usage is None:
-        return 0, 0
+    metadata = response_usage_metadata(response)
+    return int(metadata["completion_tokens"] or 0), int(metadata["reasoning_tokens"] or 0)
 
-    output_tokens = int(
-        getattr(usage, "output_tokens", None)
-        or getattr(usage, "completion_tokens", None)
-        or 0
-    )
+
+def response_usage_metadata(response: Any) -> dict:
+    """Return comparable token/cost metadata from Responses or chat-shaped usage."""
+    usage = _get(response, "usage")
+    return usage_metadata(usage)
+
+
+def usage_metadata(usage: Any) -> dict:
+    if usage is None:
+        return {
+            "prompt_tokens": 0,
+            "completion_tokens": 0,
+            "reasoning_tokens": 0,
+            "total_tokens": 0,
+            "api_cost": None,
+        }
+
     details = (
-        getattr(usage, "output_tokens_details", None)
-        or getattr(usage, "completion_tokens_details", None)
+        _get(usage, "output_tokens_details")
+        or _get(usage, "completion_tokens_details")
     )
-    reasoning_tokens = int(getattr(details, "reasoning_tokens", 0) or 0) if details else 0
-    return output_tokens, reasoning_tokens
+    return {
+        "prompt_tokens": int(
+            _get(usage, "input_tokens")
+            or _get(usage, "prompt_tokens")
+            or 0
+        ),
+        "completion_tokens": int(
+            _get(usage, "output_tokens")
+            or _get(usage, "completion_tokens")
+            or 0
+        ),
+        "reasoning_tokens": int(_get(details, "reasoning_tokens") or 0) if details else 0,
+        "total_tokens": int(_get(usage, "total_tokens") or 0),
+        "api_cost": _float_or_none(_get(usage, "cost")),
+    }
+
+
+def _get(value: Any, key: str):
+    if value is None:
+        return None
+    if isinstance(value, dict):
+        return value.get(key)
+    return getattr(value, key, None)
+
+
+def _float_or_none(value) -> float | None:
+    if value is None:
+        return None
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None

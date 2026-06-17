@@ -22,6 +22,9 @@ class FakeClient:
             reasoning = response_item.get("reasoning")
             tool_calls = response_item.get("tool_calls")
             reasoning_tokens = response_item.get("reasoning_tokens")
+            prompt_tokens = response_item.get("prompt_tokens")
+            total_tokens = response_item.get("total_tokens")
+            cost = response_item.get("cost")
         else:
             content = response_item
             reasoning_content = None
@@ -29,8 +32,16 @@ class FakeClient:
             reasoning = None
             tool_calls = None
             reasoning_tokens = None
+            prompt_tokens = None
+            total_tokens = None
+            cost = None
         usage_text = content or reasoning_content or thinking or reasoning or ""
-        usage = SimpleNamespace(completion_tokens=len(usage_text.split()))
+        usage = SimpleNamespace(
+            completion_tokens=len(usage_text.split()),
+            prompt_tokens=prompt_tokens,
+            total_tokens=total_tokens,
+            cost=cost,
+        )
         if reasoning_tokens is not None:
             usage.completion_tokens_details = SimpleNamespace(reasoning_tokens=reasoning_tokens)
         message = SimpleNamespace(content=content)
@@ -275,6 +286,30 @@ def test_agent_loop_counts_nonstream_reasoning_tokens(tmp_path):
     result = _run(client, task)
 
     assert result["reasoning_tokens"] == 12
+
+
+def test_agent_loop_aggregates_nonstream_usage_metadata(tmp_path):
+    task = _task(tmp_path, max_steps=2)
+    client = FakeClient([
+        {
+            "content": '{"tool": "list_files", "args": {"path": "."}}',
+            "prompt_tokens": 10,
+            "total_tokens": 14,
+            "cost": 0.001,
+        },
+        {
+            "content": '{"tool": "final", "args": {"summary": "inspected only"}}',
+            "prompt_tokens": 12,
+            "total_tokens": 16,
+            "cost": 0.002,
+        },
+    ])
+
+    result = _run(client, task)
+
+    assert result["prompt_tokens"] == 22
+    assert result["total_tokens"] == 30
+    assert result["api_cost"] == 0.003
 
 
 def test_agent_loop_accepts_kimi_tool_calls_section_syntax(tmp_path):
