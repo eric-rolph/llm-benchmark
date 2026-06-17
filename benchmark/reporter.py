@@ -410,9 +410,9 @@ def save_results(all_results: dict, output_dir: str):
         w.writerow(["model", "task_id", "task_version", "category", "benchmark_tier",
                     "contamination_risk", "execution_surface", "source_signal",
                     "human_minutes_estimate", "criticisms_addressed", "scoring_type",
-                    "score", "pass_threshold", "passed", "tps", "ttft_ms", "total_ms",
+                    "score", "score_std", "pass_threshold", "passed", "tps", "ttft_ms", "total_ms",
                     "prompt_tokens", "completion_tokens", "reasoning_tokens", "total_tokens",
-                    "api_cost",
+                    "api_cost", "sample_count",
                     "score_detail"])
         for model, results in all_results.items():
             for r in results:
@@ -430,6 +430,7 @@ def save_results(all_results: dict, output_dir: str):
                     _csv_value(task.get("criticisms_addressed", "")),
                     task.get("scoring", {}).get("type", ""),
                     r["score"],
+                    r.get("score_std", ""),
                     r.get("pass_threshold", ""),
                     result_passed(r),
                     r.get("tps", ""),
@@ -440,6 +441,7 @@ def save_results(all_results: dict, output_dir: str):
                     r.get("reasoning_tokens", ""),
                     r.get("total_tokens", ""),
                     r.get("api_cost", ""),
+                    r.get("sample_count", ""),
                     r.get("score_detail", ""),
                 ])
     console.print(f"CSV  → [cyan]{csv_path}[/cyan]")

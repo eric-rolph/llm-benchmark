@@ -50,8 +50,8 @@ run cost reaches the cap.
 | **118 tasks, 10 categories** | Math, reasoning, coding, repo-patch, observed agent-loop, agentic, knowledge, writing, summarization, instruction-following, including vision-language tasks folded into reasoning/writing |
 | **21 scoring types** | numeric, exact, contains, multi_contains, fuzzy_match, regex, json_keys, json_schema, line_count, code_exec, repo_patch, agent_loop, word_count, contains_n, not_contains, ends_with, logprob_choice, workflow_trace, pass_at_k, llm_judge, rubric_judge |
 | **Workflow trace scoring** | `workflow_trace` grades ordered tool-call traces, required args, and optional replayed mock state |
-| **Repo-patch scoring** | `repo_patch` copies a local fixture repo, applies model file edits or unified diffs, injects hidden tests, and runs the configured test command |
-| **Observed agent-loop scoring** | `agent_loop` lets the model inspect/read/write/run tests through JSON actions, records the transcript, then injects hidden tests after `final` |
+| **Repo-patch scoring** | `repo_patch` copies a local fixture repo, applies model file edits or unified diffs, rejects harness-control edits, injects hidden tests, and runs the configured test command |
+| **Observed agent-loop scoring** | `agent_loop` lets the model inspect/read/write/run tests through JSON actions, rejects harness-control writes, records the transcript, then injects hidden tests after `final` |
 | **Few-shot examples** | Add `few_shot:` to any task YAML to inject conversation history before the prompt |
 | **pass@k coding** | `scoring.type: pass_at_k` can run n samples and estimate pass@k with the unbiased Chen et al. (2021) estimator |
 | **LLM-as-judge** | CoT-then-score protocol — enable with `judge.enabled: true` in config |
@@ -62,6 +62,7 @@ run cost reaches the cap.
 | **Execution surfaces** | Optional `execution_surface` and `source_signal` tags produce Claw-style surface breakdowns in reports |
 | **Composite score** | Weighted cross-category score in summary table (agent-loop, repo-patch, coding, and reasoning weighted higher) |
 | **Crash-safe results** | Incremental JSONL written after every task — restart safely |
+| **Harness integrity checks** | Model-authored edits to `tests/**`, `conftest.py`, pytest config files, `pyproject.toml`, and `sitecustomize.py` are rejected before hidden scoring |
 | **Latency histograms** | Per-category min/median/p95/max latency surfaced in summary table |
 | **CI integration** | `--ci-threshold` flag returns exit code 1 when score drops below target |
 | **Rich console output** | Live per-task scores + summary tables + CSV/JSON export |

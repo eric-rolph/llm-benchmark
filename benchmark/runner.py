@@ -639,17 +639,43 @@ class ModelRunner:
         avg_ttft  = _avg([r["ttft_ms"]  for r in results])
         avg_total = _avg([r["total_ms"] for r in results])
         avg_tps   = _avg([r["tps"]      for r in results])
-        return {
+        aggregated = {
             **last,
             "error":    errors[-1]["error"] if len(errors) == len(results) else None,
             "ttft_ms":  round(avg_ttft,  1) if avg_ttft  is not None else None,
             "total_ms": round(avg_total, 1) if avg_total is not None else None,
             "tps":      round(avg_tps,   1) if avg_tps   is not None else None,
+            "sample_count": len(results),
             # All individual run results — used by run.py to compute score variance.
             # Prefixed with _ to signal it is internal/transient (not written to JSONL).
             "_all_runs": results,
         }
+        for field in ("prompt_tokens", "completion_tokens", "reasoning_tokens", "total_tokens", "api_cost"):
+            total = _sum_numeric_result_field(results, field)
+            if total is not None:
+                aggregated[field] = total
+        return aggregated
 
     def run_task_k(self, task: dict, k: int) -> list[dict]:
         """Run the task k independent times (used for pass@k scoring)."""
         return [self._run_once(task) for _ in range(k)]
+
+
+def _sum_numeric_result_field(results: list[dict], field: str) -> int | float | None:
+    values = []
+    for result in results:
+        raw = result.get(field)
+        if raw in (None, ""):
+            continue
+        try:
+            values.append(float(raw))
+        except (TypeError, ValueError):
+            continue
+    if not values:
+        return None
+    total = sum(values)
+    if field == "api_cost":
+        return round(total, 8)
+    if total.is_integer():
+        return int(total)
+    return total

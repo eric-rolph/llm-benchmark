@@ -13,6 +13,9 @@ observed agent-loop workflows.
   `agentic`.
 - `agent_loop` tasks execute an observed tool loop over a copied fixture repo:
   list/read/write/run visible tests, then inject hidden tests after `final`.
+- `repo_patch` and `agent_loop` reject model-authored edits to harness-control
+  paths such as `tests/**`, `conftest.py`, pytest config files,
+  `pyproject.toml`, and `sitecustomize.py`.
 
 ## Secrets
 
@@ -65,6 +68,8 @@ Recent signal from hard `agent_loop` probes:
 - Hosted runs should preserve `prompt_tokens`, `completion_tokens`,
   `reasoning_tokens`, `total_tokens`, and provider-reported `api_cost` when
   available. OpenRouter exposes `usage.cost` on chat responses.
+- For `runs_per_task > 1`, usage and `api_cost` should be summed across all
+  samples; `sample_count` and `score_std` are persisted for analysis.
 - `benchmark.max_api_cost` / `--max-api-cost` caps newly executed hosted work
   using accumulated provider-reported `api_cost`; cached resume rows do not
   consume the current run budget.

@@ -16,6 +16,7 @@ from benchmark.repo_patch import (
     _run_test_command,
     _safe_target,
     _sentinel_completed,
+    _is_protected_harness_path,
     _truncate,
     _validate_test_command,
     _write_hidden_tests,
@@ -638,6 +639,8 @@ def _tool_write_file(workspace: Path, rel: str, content: str) -> tuple[bool, str
     target = _safe_target(workspace, rel)
     if target is None:
         return False, f"agent_loop: unsafe path rejected: {rel}", False
+    if _is_protected_harness_path(rel):
+        return False, f"agent_loop: protected path rejected: {rel}", False
     target.parent.mkdir(parents=True, exist_ok=True)
     target.write_text(content, encoding="utf-8")
     return True, f"agent_loop: wrote {rel}", False
