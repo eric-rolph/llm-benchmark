@@ -242,6 +242,8 @@ def _extract_action(text: str) -> dict | None:
             continue
         if isinstance(value, dict) and isinstance(value.get("tool"), str):
             return value
+        if isinstance(value, dict) and "summary" in value and "tool" not in value:
+            return {"tool": "final", "args": {"summary": str(value.get("summary") or "")}}
     triple_quoted = _extract_triple_quoted_write_file_action(text)
     if triple_quoted is not None:
         return triple_quoted
