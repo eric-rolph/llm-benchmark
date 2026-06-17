@@ -217,6 +217,7 @@ def _call_model(
         message.content
         or getattr(message, "reasoning_content", None)
         or getattr(message, "thinking", None)
+        or getattr(message, "reasoning", None)
         or ""
     )
     usage = getattr(response, "usage", None)
@@ -443,14 +444,17 @@ def _parse_keyword_args(body: str) -> dict[str, str] | None:
             idx += 1
         if idx >= length:
             break
-        key_match = re.match(r"[A-Za-z_]\w*", body[idx:])
+        key_match = re.match(
+            r"\"(?P<double>[A-Za-z_]\w*)\"|'(?P<single>[A-Za-z_]\w*)'|(?P<bare>[A-Za-z_]\w*)",
+            body[idx:],
+        )
         if not key_match:
             return None
-        key = key_match.group(0)
-        idx += len(key)
+        key = key_match.group("double") or key_match.group("single") or key_match.group("bare")
+        idx += len(key_match.group(0))
         while idx < length and body[idx].isspace():
             idx += 1
-        if idx >= length or body[idx] != "=":
+        if idx >= length or body[idx] not in {"=", ":"}:
             return None
         idx += 1
         while idx < length and body[idx].isspace():

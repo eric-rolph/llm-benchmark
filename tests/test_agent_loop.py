@@ -19,17 +19,21 @@ class FakeClient:
             content = response_item.get("content")
             reasoning_content = response_item.get("reasoning_content")
             thinking = response_item.get("thinking")
+            reasoning = response_item.get("reasoning")
         else:
             content = response_item
             reasoning_content = None
             thinking = None
-        usage_text = content or reasoning_content or thinking or ""
+            reasoning = None
+        usage_text = content or reasoning_content or thinking or reasoning or ""
         usage = SimpleNamespace(completion_tokens=len(usage_text.split()))
         message = SimpleNamespace(content=content)
         if reasoning_content is not None:
             message.reasoning_content = reasoning_content
         if thinking is not None:
             message.thinking = thinking
+        if reasoning is not None:
+            message.reasoning = reasoning
         choice = SimpleNamespace(message=message)
         return SimpleNamespace(choices=[choice], usage=usage)
 
@@ -214,6 +218,19 @@ def test_agent_loop_reads_nonstream_reasoning_action_when_content_is_empty(tmp_p
     assert result["execution_trace"]["tool_calls"][0]["ok"] is True
 
 
+def test_agent_loop_reads_nonstream_reasoning_field_action_when_content_is_empty(tmp_path):
+    task = _task(tmp_path, max_steps=2)
+    client = FakeClient([
+        {"content": "", "reasoning": '{"tool": "list_files", "args": {"path": "."}}'},
+        '{"tool": "final", "args": {"summary": "inspected only"}}',
+    ])
+
+    result = _run(client, task)
+
+    assert result["execution_trace"]["tool_calls"][0]["tool"] == "list_files"
+    assert result["execution_trace"]["tool_calls"][0]["ok"] is True
+
+
 def test_agent_loop_accepts_triple_quoted_write_file_content(tmp_path):
     task = _task(tmp_path, max_steps=3)
     client = FakeClient([
@@ -318,6 +335,19 @@ def test_agent_loop_function_call_decodes_common_string_escapes(tmp_path):
     task = _task(tmp_path, max_steps=3)
     client = FakeClient([
         'write_file(path="calc/stats.py", content="def mean(values):\\n    return sum(values) / len(values)\\n")',
+        "run_tests()",
+        'final(summary="fixed mean")',
+    ])
+
+    result = _run(client, task)
+
+    assert result["agent_loop_score"] == 1.0
+
+
+def test_agent_loop_accepts_quoted_json_style_function_keyword(tmp_path):
+    task = _task(tmp_path, max_steps=3)
+    client = FakeClient([
+        'write_file(path="calc/stats.py","content":"def mean(values):\\n    return sum(values) / len(values)\\n")',
         "run_tests()",
         'final(summary="fixed mean")',
     ])
