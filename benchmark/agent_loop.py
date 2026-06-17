@@ -213,16 +213,28 @@ def _call_model(
         timeout=bench_config.get("timeout", 180),
     )
     message = response.choices[0].message
-    content = (
-        message.content
-        or getattr(message, "reasoning_content", None)
-        or getattr(message, "thinking", None)
-        or getattr(message, "reasoning", None)
-        or ""
+    content = _first_nonblank(
+        message.content,
+        _message_tool_call_action_text(message),
+        getattr(message, "reasoning_content", None),
+        getattr(message, "thinking", None),
+        getattr(message, "reasoning", None),
     )
     usage = getattr(response, "usage", None)
     tokens = int(getattr(usage, "completion_tokens", 0) or 0)
-    return content, tokens, 0
+    details = getattr(usage, "completion_tokens_details", None)
+    reasoning_tokens = int(getattr(details, "reasoning_tokens", 0) or 0) if details else 0
+    return content, tokens, reasoning_tokens
+
+
+def _first_nonblank(*values) -> str:
+    for value in values:
+        if value is None:
+            continue
+        text = str(value)
+        if text.strip():
+            return text
+    return ""
 
 
 def _extract_action(text: str) -> dict | None:
@@ -251,6 +263,9 @@ def _extract_action(text: str) -> dict | None:
     tool_colon = _extract_tool_colon_json_action(text)
     if tool_colon is not None:
         return tool_colon
+    kimi_tool_call = _extract_kimi_tool_call_section_action(text)
+    if kimi_tool_call is not None:
+        return kimi_tool_call
     function_call = _extract_function_call_action(text)
     if function_call is not None:
         return function_call
@@ -258,6 +273,35 @@ def _extract_action(text: str) -> dict | None:
     if lenient_write is not None:
         return lenient_write
     return _extract_tool_call_tag_action(text)
+
+
+def _message_tool_call_action_text(message) -> str | None:
+    tool_calls = getattr(message, "tool_calls", None) or []
+    for call in tool_calls:
+        function = getattr(call, "function", None)
+        if function is None:
+            continue
+        raw_name = _get_attr_or_key(function, "name")
+        if not raw_name:
+            continue
+        tool = str(raw_name).rsplit(".", 1)[-1]
+        if tool not in _ALLOWED_TOOLS:
+            continue
+        raw_args = _get_attr_or_key(function, "arguments") or "{}"
+        try:
+            args = json.loads(str(raw_args))
+        except json.JSONDecodeError:
+            args = {}
+        if not isinstance(args, dict):
+            args = {}
+        return json.dumps({"tool": tool, "args": args})
+    return None
+
+
+def _get_attr_or_key(value, key: str):
+    if isinstance(value, dict):
+        return value.get(key)
+    return getattr(value, key, None)
 
 
 def _extract_triple_quoted_write_file_action(text: str) -> dict | None:
@@ -303,6 +347,26 @@ def _extract_tool_call_tag_action(text: str) -> dict | None:
     tool = match.group("tool")
     if tool not in _ALLOWED_TOOLS:
         return None
+    return {"tool": tool, "args": args}
+
+
+def _extract_kimi_tool_call_section_action(text: str) -> dict | None:
+    match = re.search(
+        r"<\|tool_call_begin\|>"
+        r"(?:(?:functions|tools?)\.)?(?P<tool>[A-Za-z_]\w*)"
+        r"(?::\d+)?"
+        r"<\|tool_call_argument_begin\|>"
+        r"(?P<body>.*?)"
+        r"<\|tool_call_end\|>",
+        text,
+        re.DOTALL,
+    )
+    if not match:
+        return None
+    tool = match.group("tool")
+    if tool not in _ALLOWED_TOOLS:
+        return None
+    args = _decode_json_object_at(match.group("body").strip(), 0) or {}
     return {"tool": tool, "args": args}
 
 

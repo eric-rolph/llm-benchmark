@@ -4,6 +4,7 @@ __pycache__/
 *.pyc
 *.pyo
 .env
+.secrets/
 
 # config.yaml contains api_key fields.  If you put a real key in it
 # (e.g. for a cloud OpenAI-compatible endpoint), uncomment the line below

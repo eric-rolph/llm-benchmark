@@ -20,13 +20,19 @@ class FakeClient:
             reasoning_content = response_item.get("reasoning_content")
             thinking = response_item.get("thinking")
             reasoning = response_item.get("reasoning")
+            tool_calls = response_item.get("tool_calls")
+            reasoning_tokens = response_item.get("reasoning_tokens")
         else:
             content = response_item
             reasoning_content = None
             thinking = None
             reasoning = None
+            tool_calls = None
+            reasoning_tokens = None
         usage_text = content or reasoning_content or thinking or reasoning or ""
         usage = SimpleNamespace(completion_tokens=len(usage_text.split()))
+        if reasoning_tokens is not None:
+            usage.completion_tokens_details = SimpleNamespace(reasoning_tokens=reasoning_tokens)
         message = SimpleNamespace(content=content)
         if reasoning_content is not None:
             message.reasoning_content = reasoning_content
@@ -34,6 +40,11 @@ class FakeClient:
             message.thinking = thinking
         if reasoning is not None:
             message.reasoning = reasoning
+        if tool_calls is not None:
+            message.tool_calls = [
+                SimpleNamespace(function=SimpleNamespace(name=call["name"], arguments=call["arguments"]))
+                for call in tool_calls
+            ]
         choice = SimpleNamespace(message=message)
         return SimpleNamespace(choices=[choice], usage=usage)
 
@@ -229,6 +240,54 @@ def test_agent_loop_reads_nonstream_reasoning_field_action_when_content_is_empty
 
     assert result["execution_trace"]["tool_calls"][0]["tool"] == "list_files"
     assert result["execution_trace"]["tool_calls"][0]["ok"] is True
+
+
+def test_agent_loop_reads_native_tool_call_when_content_is_empty(tmp_path):
+    task = _task(tmp_path, max_steps=2)
+    client = FakeClient([
+        {
+            "content": "   ",
+            "reasoning": "Let me inspect first.",
+            "tool_calls": [{"name": "list_files", "arguments": '{"path": "."}'}],
+        },
+        '{"tool": "final", "args": {"summary": "inspected only"}}',
+    ])
+
+    result = _run(client, task)
+
+    assert result["execution_trace"]["tool_calls"][0]["tool"] == "list_files"
+    assert result["execution_trace"]["tool_calls"][0]["args"] == {"path": "."}
+
+
+def test_agent_loop_counts_nonstream_reasoning_tokens(tmp_path):
+    task = _task(tmp_path, max_steps=2)
+    client = FakeClient([
+        {
+            "content": '{"tool": "list_files", "args": {"path": "."}}',
+            "reasoning_tokens": 7,
+        },
+        {
+            "content": '{"tool": "final", "args": {"summary": "inspected only"}}',
+            "reasoning_tokens": 5,
+        },
+    ])
+
+    result = _run(client, task)
+
+    assert result["reasoning_tokens"] == 12
+
+
+def test_agent_loop_accepts_kimi_tool_calls_section_syntax(tmp_path):
+    task = _task(tmp_path, max_steps=2)
+    client = FakeClient([
+        '<|tool_calls_section_begin|><|tool_call_begin|>functions.list_files:0<|tool_call_argument_begin|>{"path":"."}<|tool_call_end|><|tool_calls_section_end|>',
+        '{"tool": "final", "args": {"summary": "inspected only"}}',
+    ])
+
+    result = _run(client, task)
+
+    assert result["execution_trace"]["tool_calls"][0]["tool"] == "list_files"
+    assert result["execution_trace"]["tool_calls"][0]["args"] == {"path": "."}
 
 
 def test_agent_loop_accepts_triple_quoted_write_file_content(tmp_path):

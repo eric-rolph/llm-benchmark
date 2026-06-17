@@ -43,7 +43,46 @@ def load_config(path: str) -> dict:
     if not cfg_path.exists():
         console.print(f"[red]Config not found: {cfg_path}[/red]")
         sys.exit(1)
-    return yaml.safe_load(cfg_path.read_text(encoding="utf-8"))
+    config = yaml.safe_load(cfg_path.read_text(encoding="utf-8")) or {}
+    _load_config_secrets(config, cfg_path.parent)
+    return config
+
+
+def _load_config_secrets(config: dict, base_dir: Path) -> None:
+    raw_paths = config.get("secrets_files", config.get("secrets_file"))
+    if not raw_paths:
+        return
+    paths = raw_paths if isinstance(raw_paths, list) else [raw_paths]
+    for raw_path in paths:
+        secrets_path = Path(str(raw_path))
+        if not secrets_path.is_absolute():
+            secrets_path = base_dir / secrets_path
+        _load_env_file(secrets_path)
+
+
+def _load_env_file(path: Path) -> None:
+    if not path.exists():
+        return
+    for raw_line in path.read_text(encoding="utf-8").splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("#"):
+            continue
+        if line.startswith("export "):
+            line = line[len("export "):].strip()
+        if "=" not in line:
+            continue
+        key, value = line.split("=", 1)
+        key = key.strip()
+        if not key or key in os.environ:
+            continue
+        os.environ[key] = _strip_env_value(value)
+
+
+def _strip_env_value(value: str) -> str:
+    stripped = value.strip()
+    if len(stripped) >= 2 and stripped[0] == stripped[-1] and stripped[0] in {"'", '"'}:
+        return stripped[1:-1]
+    return stripped
 
 
 def _parse_manual_model_specs(raw_models: list | None) -> list[ManualModelSpec]:

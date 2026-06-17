@@ -1,11 +1,15 @@
 # OpenRouter frontier coding/agent-loop validation profile.
 #
-# No API key is stored here. Set one in the shell before running:
+# No API key is stored here. Put one in the ignored secrets file or set it
+# in the shell before running:
+#   ../.secrets/openrouter.env, resolved from this configs/ directory
 #   PowerShell: $env:OPENROUTER_API_KEY = "sk-or-v1-..."
 #
 # This profile intentionally uses one deterministic run per task to keep
 # validation probes cheap. Use --task with multiple IDs for a focused hard slice,
 # or omit --task to run all agent_loop tasks.
+
+secrets_file: "../.secrets/openrouter.env"
 
 backends:
   generic_openai:

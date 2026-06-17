@@ -176,16 +176,25 @@ scoring and leaderboard tier policy.
 For OpenRouter-hosted SOTA comparisons, use the included profile:
 
 ```powershell
+# Either set the env var in your shell:
 $env:OPENROUTER_API_KEY = "sk-or-v1-..."
+
+# Or put it in the ignored local secrets file:
+# configs/openrouter-frontier-agent-loop.yaml loads ../.secrets/openrouter.env
+# from the configs/ directory:
+# .secrets/openrouter.env
+# OPENROUTER_API_KEY=sk-or-v1-...
+
 python .\run.py --config .\configs\openrouter-frontier-agent-loop.yaml --backend generic_openai --category agent_loop --task agent_loop_004_csv_import_reconciliation agent_loop_005_ttl_cache_invalidation --allow-code-exec --output results\openrouter_frontier_agent_loop_hard_probe
 ```
 
 The profile runs the six frontier model IDs requested for coding/agent-loop
 validation: Claude Opus 4.7, GLM 5.2, Gemini 3.5 Flash, Kimi K2.6, Qwen 3.7
 Max, and MiniMax M3. It uses `runs_per_task: 1` and `resume: true` to keep
-cost bounded while preserving crash-safe JSONL output. For a single-model
-OpenRouter thinking-budget run, set backend or task-level `extra_body`, for
-example `reasoning.max_tokens: 512`.
+cost bounded while preserving crash-safe JSONL output. The profile loads
+`.secrets/openrouter.env` when present, and `.secrets/` is ignored by git. For
+a single-model OpenRouter thinking-budget run, set backend or task-level
+`extra_body`, for example `reasoning.max_tokens: 512`.
 
 ---
 
