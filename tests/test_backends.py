@@ -98,6 +98,46 @@ def test_openai_api_base_url_can_use_standard_openai_api_key(monkeypatch):
     assert backend._auth_headers() == {"Authorization": "Bearer openai-key"}
 
 
+def test_openrouter_api_base_url_can_use_standard_openrouter_api_key(monkeypatch):
+    monkeypatch.delenv("LLM_BENCH_GENERIC_OPENAI_API_KEY", raising=False)
+    monkeypatch.setenv("OPENROUTER_API_KEY", "openrouter-key")
+
+    backend = GenericOpenAIBackend({
+        "name": "Generic OpenAI",
+        "base_url": "https://openrouter.ai/api/v1",
+    })
+
+    assert backend._auth_headers() == {"Authorization": "Bearer openrouter-key"}
+
+
+def test_generic_openai_backend_passes_chat_extra_body_from_config_and_task():
+    backend = GenericOpenAIBackend({
+        "name": "Generic OpenAI",
+        "base_url": "https://openrouter.ai/api/v1",
+        "extra_body": {
+            "reasoning": {"max_tokens": 512},
+            "provider": {"sort": "throughput"},
+        },
+    })
+
+    assert backend.get_extra_chat_params({}) == {
+        "extra_body": {
+            "reasoning": {"max_tokens": 512},
+            "provider": {"sort": "throughput"},
+        },
+    }
+    assert backend.get_extra_chat_params({
+        "extra_body": {
+            "reasoning": {"max_tokens": 1024},
+        },
+    }) == {
+        "extra_body": {
+            "reasoning": {"max_tokens": 1024},
+            "provider": {"sort": "throughput"},
+        },
+    }
+
+
 def test_generic_openai_backend_can_opt_into_responses_api():
     backend = GenericOpenAIBackend({
         "name": "Generic OpenAI",

@@ -1,3 +1,4 @@
+import json
 from copy import deepcopy
 from types import SimpleNamespace
 
@@ -19,17 +20,47 @@ class FakeClient:
             content = response_item.get("content")
             reasoning_content = response_item.get("reasoning_content")
             thinking = response_item.get("thinking")
+            reasoning = response_item.get("reasoning")
+            tool_calls = response_item.get("tool_calls")
+            reasoning_tokens = response_item.get("reasoning_tokens")
+            prompt_tokens = response_item.get("prompt_tokens")
+            total_tokens = response_item.get("total_tokens")
+            cost = response_item.get("cost")
         else:
             content = response_item
             reasoning_content = None
             thinking = None
-        usage_text = content or reasoning_content or thinking or ""
-        usage = SimpleNamespace(completion_tokens=len(usage_text.split()))
+            reasoning = None
+            tool_calls = None
+            reasoning_tokens = None
+            prompt_tokens = None
+            total_tokens = None
+            cost = None
+        usage_text = content or reasoning_content or thinking or reasoning or ""
+        usage = SimpleNamespace(
+            completion_tokens=len(usage_text.split()),
+            prompt_tokens=prompt_tokens,
+            total_tokens=total_tokens,
+            cost=cost,
+        )
+        if reasoning_tokens is not None:
+            usage.completion_tokens_details = SimpleNamespace(reasoning_tokens=reasoning_tokens)
         message = SimpleNamespace(content=content)
         if reasoning_content is not None:
             message.reasoning_content = reasoning_content
         if thinking is not None:
             message.thinking = thinking
+        if reasoning is not None:
+            message.reasoning = reasoning
+        if tool_calls is not None:
+            message.tool_calls = [
+                SimpleNamespace(
+                    id=call.get("id", "call_0"),
+                    type="function",
+                    function=SimpleNamespace(name=call["name"], arguments=call["arguments"]),
+                )
+                for call in tool_calls
+            ]
         choice = SimpleNamespace(message=message)
         return SimpleNamespace(choices=[choice], usage=usage)
 
@@ -44,9 +75,20 @@ class FakeResponsesClient:
         self.requests.append(deepcopy(kwargs))
         if not self.responses_list:
             raise AssertionError("fake responses client has no response left")
-        output_text = self.responses_list.pop(0)
-        usage = SimpleNamespace(output_tokens=len(output_text.split()))
-        return SimpleNamespace(output_text=output_text, output=[], usage=usage, status="completed")
+        response_item = self.responses_list.pop(0)
+        if isinstance(response_item, dict):
+            output_text = response_item.get("output_text", "")
+            output = [
+                SimpleNamespace(**item)
+                for item in response_item.get("output", [])
+            ]
+            response_id = response_item.get("id", f"resp_{len(self.requests)}")
+        else:
+            output_text = response_item
+            output = []
+            response_id = f"resp_{len(self.requests)}"
+        usage = SimpleNamespace(output_tokens=len(str(output_text).split()))
+        return SimpleNamespace(id=response_id, output_text=output_text, output=output, usage=usage, status="completed")
 
 
 def _task(tmp_path, **scoring_updates):
@@ -129,6 +171,7 @@ def test_agent_loop_executes_tools_and_scores_hidden_tests(tmp_path):
         "run_tests",
         "final",
     ]
+    assert "tools" not in client.requests[0]
     assert "def mean" in client.requests[1]["messages"][-1]["content"]
 
 
@@ -154,6 +197,40 @@ def test_agent_loop_reports_max_steps_without_final(tmp_path):
     assert "max steps" in result["agent_loop_detail"].lower()
 
 
+def test_agent_loop_records_partial_progress_when_hidden_score_is_zero(tmp_path):
+    task = _task(tmp_path, max_steps=2)
+    client = FakeClient([
+        '{"tool": "read_file", "args": {"path": "calc/stats.py"}}',
+        (
+            '{"tool": "write_file", "args": {"path": "calc/stats.py", '
+            '"content": "def mean(values):\\n    return sum(values) / len(values)\\n"}}'
+        ),
+    ])
+
+    result = _run(client, task)
+
+    assert result["agent_loop_score"] == 0.0
+    assert result["agent_loop_progress_score"] == 3 / 7
+    assert result["agent_loop_progress_passed"] == 3
+    assert result["agent_loop_progress_total"] == 7
+    assert result["agent_loop_termination"] == "max_steps"
+    assert result["execution_trace"]["progress"] == {
+        "score": 3 / 7,
+        "passed": 3,
+        "total": 7,
+        "termination": "max_steps",
+        "checks": {
+            "valid_action": True,
+            "inspected_workspace": True,
+            "wrote_file": True,
+            "ran_visible_tests": False,
+            "visible_tests_passed": False,
+            "final_called": False,
+            "hidden_tests_passed": False,
+        },
+    }
+
+
 def test_agent_loop_rejects_unsafe_paths(tmp_path):
     task = _task(tmp_path, max_steps=2)
     outside = tmp_path / "outside.py"
@@ -168,6 +245,26 @@ def test_agent_loop_rejects_unsafe_paths(tmp_path):
     assert not outside.exists()
     assert any(
         event["tool"] == "write_file" and event["ok"] is False
+        for event in result["execution_trace"]["tool_calls"]
+    )
+
+
+def test_agent_loop_rejects_hidden_test_collection_sabotage(tmp_path):
+    task = _task(tmp_path, max_steps=2)
+    conftest = (
+        "def pytest_ignore_collect(collection_path, config):\n"
+        "    return collection_path.name.startswith('test_hidden')\n"
+    )
+    client = FakeClient([
+        '{"tool": "write_file", "args": {"path": "conftest.py", "content": ' + json.dumps(conftest) + '}}',
+        '{"tool": "final", "args": {"summary": "tests pass"}}',
+    ])
+
+    result = _run(client, task)
+
+    assert result["agent_loop_score"] == 0.0
+    assert any(
+        event["tool"] == "write_file" and event["ok"] is False and "protected" in event["observation"]
         for event in result["execution_trace"]["tool_calls"]
     )
 
@@ -212,6 +309,142 @@ def test_agent_loop_reads_nonstream_reasoning_action_when_content_is_empty(tmp_p
 
     assert result["execution_trace"]["tool_calls"][0]["tool"] == "list_files"
     assert result["execution_trace"]["tool_calls"][0]["ok"] is True
+
+
+def test_agent_loop_reads_nonstream_reasoning_field_action_when_content_is_empty(tmp_path):
+    task = _task(tmp_path, max_steps=2)
+    client = FakeClient([
+        {"content": "", "reasoning": '{"tool": "list_files", "args": {"path": "."}}'},
+        '{"tool": "final", "args": {"summary": "inspected only"}}',
+    ])
+
+    result = _run(client, task)
+
+    assert result["execution_trace"]["tool_calls"][0]["tool"] == "list_files"
+    assert result["execution_trace"]["tool_calls"][0]["ok"] is True
+
+
+def test_agent_loop_reads_native_tool_call_when_content_is_empty(tmp_path):
+    task = _task(tmp_path, max_steps=2)
+    client = FakeClient([
+        {
+            "content": "   ",
+            "reasoning": "Let me inspect first.",
+            "tool_calls": [{"name": "list_files", "arguments": '{"path": "."}'}],
+        },
+        '{"tool": "final", "args": {"summary": "inspected only"}}',
+    ])
+
+    result = _run(client, task)
+
+    assert result["execution_trace"]["tool_calls"][0]["tool"] == "list_files"
+    assert result["execution_trace"]["tool_calls"][0]["args"] == {"path": "."}
+
+
+def test_agent_loop_sends_native_tool_schemas_when_enabled(tmp_path):
+    task = _task(tmp_path, max_steps=2)
+    client = FakeClient([
+        {
+            "content": "   ",
+            "tool_calls": [{"name": "list_files", "arguments": '{"path": "."}'}],
+        },
+        '{"tool": "final", "args": {"summary": "inspected only"}}',
+    ])
+
+    result = run_agent_loop(
+        client=client,
+        model_id="fake-model",
+        task=task,
+        backend_name="fake",
+        bench_config={"temperature": 0.0, "timeout": 30, "agent_loop_native_tools": True},
+    )
+
+    request = client.requests[0]
+    tool_names = {tool["function"]["name"] for tool in request["tools"]}
+    assert tool_names == {"list_files", "read_file", "write_file", "run_tests", "final"}
+    assert request["tool_choice"] == "auto"
+    assert result["execution_trace"]["tool_calls"][0]["tool"] == "list_files"
+
+
+def test_agent_loop_feeds_native_tool_observation_with_tool_role(tmp_path):
+    task = _task(tmp_path, max_steps=2)
+    client = FakeClient([
+        {
+            "content": "   ",
+            "tool_calls": [{"id": "call_list", "name": "list_files", "arguments": '{"path": "."}'}],
+        },
+        '{"tool": "final", "args": {"summary": "inspected only"}}',
+    ])
+
+    run_agent_loop(
+        client=client,
+        model_id="fake-model",
+        task=task,
+        backend_name="fake",
+        bench_config={"temperature": 0.0, "timeout": 30, "agent_loop_native_tools": True},
+    )
+
+    second_messages = client.requests[1]["messages"]
+    assert second_messages[-2]["role"] == "assistant"
+    assert second_messages[-2]["tool_calls"][0]["id"] == "call_list"
+    assert second_messages[-1]["role"] == "tool"
+    assert second_messages[-1]["tool_call_id"] == "call_list"
+    assert "calc/stats.py" in second_messages[-1]["content"]
+
+
+def test_agent_loop_counts_nonstream_reasoning_tokens(tmp_path):
+    task = _task(tmp_path, max_steps=2)
+    client = FakeClient([
+        {
+            "content": '{"tool": "list_files", "args": {"path": "."}}',
+            "reasoning_tokens": 7,
+        },
+        {
+            "content": '{"tool": "final", "args": {"summary": "inspected only"}}',
+            "reasoning_tokens": 5,
+        },
+    ])
+
+    result = _run(client, task)
+
+    assert result["reasoning_tokens"] == 12
+
+
+def test_agent_loop_aggregates_nonstream_usage_metadata(tmp_path):
+    task = _task(tmp_path, max_steps=2)
+    client = FakeClient([
+        {
+            "content": '{"tool": "list_files", "args": {"path": "."}}',
+            "prompt_tokens": 10,
+            "total_tokens": 14,
+            "cost": 0.001,
+        },
+        {
+            "content": '{"tool": "final", "args": {"summary": "inspected only"}}',
+            "prompt_tokens": 12,
+            "total_tokens": 16,
+            "cost": 0.002,
+        },
+    ])
+
+    result = _run(client, task)
+
+    assert result["prompt_tokens"] == 22
+    assert result["total_tokens"] == 30
+    assert result["api_cost"] == 0.003
+
+
+def test_agent_loop_accepts_kimi_tool_calls_section_syntax(tmp_path):
+    task = _task(tmp_path, max_steps=2)
+    client = FakeClient([
+        '<|tool_calls_section_begin|><|tool_call_begin|>functions.list_files:0<|tool_call_argument_begin|>{"path":"."}<|tool_call_end|><|tool_calls_section_end|>',
+        '{"tool": "final", "args": {"summary": "inspected only"}}',
+    ])
+
+    result = _run(client, task)
+
+    assert result["execution_trace"]["tool_calls"][0]["tool"] == "list_files"
+    assert result["execution_trace"]["tool_calls"][0]["args"] == {"path": "."}
 
 
 def test_agent_loop_accepts_triple_quoted_write_file_content(tmp_path):
@@ -327,6 +560,19 @@ def test_agent_loop_function_call_decodes_common_string_escapes(tmp_path):
     assert result["agent_loop_score"] == 1.0
 
 
+def test_agent_loop_accepts_quoted_json_style_function_keyword(tmp_path):
+    task = _task(tmp_path, max_steps=3)
+    client = FakeClient([
+        'write_file(path="calc/stats.py","content":"def mean(values):\\n    return sum(values) / len(values)\\n")',
+        "run_tests()",
+        'final(summary="fixed mean")',
+    ])
+
+    result = _run(client, task)
+
+    assert result["agent_loop_score"] == 1.0
+
+
 def test_agent_loop_accepts_multiline_single_quoted_function_content(tmp_path):
     task = _task(tmp_path, max_steps=3)
     client = FakeClient([
@@ -371,3 +617,55 @@ def test_agent_loop_can_use_responses_api_client(tmp_path):
     assert client.requests[0]["reasoning"] == {"effort": "high"}
     assert client.requests[0]["max_output_tokens"] == 12000
     assert client.requests[0]["input"][0]["role"] == "system"
+
+
+def test_agent_loop_uses_native_responses_tool_calls_when_enabled(tmp_path):
+    task = _task(tmp_path, max_steps=2)
+    client = FakeResponsesClient([
+        {
+            "output": [
+                {
+                    "type": "function_call",
+                    "call_id": "call_list",
+                    "name": "list_files",
+                    "arguments": '{"path": "."}',
+                }
+            ],
+        },
+        {
+            "output": [
+                {
+                    "type": "function_call",
+                    "call_id": "call_final",
+                    "name": "final",
+                    "arguments": '{"summary": "inspected only"}',
+                }
+            ],
+        },
+    ])
+
+    result = run_agent_loop(
+        client=client,
+        model_id="gpt-5.5",
+        task=task,
+        backend_name="fake",
+        bench_config={"timeout": 30, "agent_loop_native_tools": True},
+        use_responses_api=True,
+        responses_params={"max_output_tokens": 12000},
+    )
+
+    assert result["execution_trace"]["tool_calls"][0]["tool"] == "list_files"
+    assert result["execution_trace"]["tool_calls"][1]["tool"] == "final"
+    assert client.requests[0]["tools"][0]["type"] == "function"
+    assert client.requests[0]["tools"][0]["name"] == "list_files"
+    assert client.requests[0]["tool_choice"] == "auto"
+    assert client.requests[0]["parallel_tool_calls"] is False
+    assert client.requests[1]["input"][-2] == {
+        "type": "function_call",
+        "call_id": "call_list",
+        "name": "list_files",
+        "arguments": '{"path": "."}',
+    }
+    assert client.requests[1]["input"][-1]["type"] == "function_call_output"
+    assert client.requests[1]["input"][-1]["call_id"] == "call_list"
+    assert "calc/stats.py" in client.requests[1]["input"][-1]["output"]

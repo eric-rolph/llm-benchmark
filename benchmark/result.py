@@ -23,6 +23,7 @@ def to_record(result: dict) -> dict:
         "model_id":  result.get("model_id", "?"),
         "model":     result.get("model_id", "?"),  # legacy readers
         "backend":   result.get("backend", "?"),
+        "run_fingerprint": result.get("run_fingerprint"),
         "task_id":   task["id"],
         "task_version": task.get("_version"),
         "task_hash": task_fingerprint(task),
@@ -37,14 +38,23 @@ def to_record(result: dict) -> dict:
         "release": task.get("_release"),
         "scoring_type": task.get("scoring", {}).get("type"),
         "score":     result["score"],
+        "score_std": result.get("score_std"),
         "pass_threshold": result.get("pass_threshold"),
         "passed": result_passed(result),
         "score_detail": result.get("score_detail", ""),
         "tps":       result.get("tps"),
         "ttft_ms":   result.get("ttft_ms"),
         "total_ms":  result.get("total_ms"),
+        "prompt_tokens": result.get("prompt_tokens"),
         "completion_tokens": result.get("completion_tokens"),
         "reasoning_tokens":  result.get("reasoning_tokens"),
+        "total_tokens":      result.get("total_tokens"),
+        "api_cost":          result.get("api_cost"),
+        "sample_count":      result.get("sample_count"),
+        "agent_loop_progress_score": result.get("agent_loop_progress_score"),
+        "agent_loop_progress_passed": result.get("agent_loop_progress_passed"),
+        "agent_loop_progress_total": result.get("agent_loop_progress_total"),
+        "agent_loop_termination": result.get("agent_loop_termination"),
         "peak_vram_mb":      result.get("peak_vram_mb"),
         "avg_gpu_util":      result.get("avg_gpu_util"),
         "logprob_detail":    result.get("logprob_detail"),
@@ -62,6 +72,7 @@ def from_record(task: dict, record: dict) -> dict:
         "response": record.get("response_preview", ""),
         "error": None,
         "score": float(record.get("score", 0.0)),
+        "score_std": record.get("score_std"),
         "max_score": 1.0,
         "pass_threshold": record.get("pass_threshold", task_pass_threshold(task)),
         "passed": record.get("passed"),
@@ -69,11 +80,20 @@ def from_record(task: dict, record: dict) -> dict:
         "tps": record.get("tps"),
         "ttft_ms": record.get("ttft_ms"),
         "total_ms": record.get("total_ms"),
+        "prompt_tokens": record.get("prompt_tokens"),
         "completion_tokens": record.get("completion_tokens"),
         "reasoning_tokens": record.get("reasoning_tokens", 0),
+        "total_tokens": record.get("total_tokens"),
+        "api_cost": record.get("api_cost"),
+        "sample_count": record.get("sample_count"),
+        "agent_loop_progress_score": record.get("agent_loop_progress_score"),
+        "agent_loop_progress_passed": record.get("agent_loop_progress_passed"),
+        "agent_loop_progress_total": record.get("agent_loop_progress_total"),
+        "agent_loop_termination": record.get("agent_loop_termination"),
         "peak_vram_mb": record.get("peak_vram_mb"),
         "avg_gpu_util": record.get("avg_gpu_util"),
         "backend": record.get("backend", "?"),
+        "run_fingerprint": record.get("run_fingerprint"),
         "model_id": record.get("model_id", record.get("model", "?")),
         "logprob_detail": record.get("logprob_detail"),
         "hf_generation_config": record.get("hf_generation_config"),
@@ -84,17 +104,18 @@ def from_record(task: dict, record: dict) -> dict:
     return result
 
 
-def cache_key(model_id: str, task: dict) -> tuple[str, str, str, str]:
+def cache_key(model_id: str, task: dict, run_fingerprint: str | None = None) -> tuple[str, str, str, str, str]:
     """Key cached results by model, task id, declared version, and task content."""
     return (
         model_id,
         task["id"],
         str(task.get("_version") or ""),
         task_fingerprint(task),
+        run_fingerprint or "",
     )
 
 
-def record_cache_key(record: dict) -> tuple[str, str, str, str]:
+def record_cache_key(record: dict) -> tuple[str, str, str, str, str]:
     """Build the resume key for a persisted record."""
     # JSON round-trips a missing version as an explicit null — normalize to ""
     # so it matches cache_key for versionless tasks.
@@ -103,4 +124,5 @@ def record_cache_key(record: dict) -> tuple[str, str, str, str]:
         record.get("task_id", ""),
         str(record.get("task_version") or ""),
         record.get("task_hash", ""),
+        record.get("run_fingerprint") or "",
     )

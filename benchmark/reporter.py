@@ -41,8 +41,28 @@ def _e3_score(score: float, reasoning_tokens: int | None, category: str) -> floa
     return score * math.log(expected + 1) / math.log(actual + 1)
 
 
-def _composite_score(results: list, core_only: bool = True) -> float | None:
+def _sum_or_none(values: list) -> float | None:
+    present = [float(v) for v in values if v is not None]
+    return sum(present) if present else None
+
+
+def _coverage_counts(results: list, expected_tasks: list[dict] | None = None) -> tuple[int, int]:
+    completed_ids = {r["task"]["id"] for r in results}
+    if expected_tasks is None:
+        return len(completed_ids), len(completed_ids)
+    expected_ids = {task["id"] for task in expected_tasks}
+    return len(completed_ids & expected_ids), len(expected_ids)
+
+
+def _composite_score(
+    results: list,
+    core_only: bool = True,
+    expected_tasks: list[dict] | None = None,
+) -> float | None:
     """Weighted composite score across categories (harder categories carry more weight)."""
+    completed, expected = _coverage_counts(results, expected_tasks)
+    if expected_tasks is not None and completed < expected:
+        return None
     if core_only:
         results = leaderboard_results(results)
     if not results:
@@ -88,16 +108,34 @@ def print_task_result(result: dict):
     )
     if score < 1.0 and result.get("score_detail"):
         console.print(f"       [dim italic]{result['score_detail'][:110]}[/dim italic]")
+    progress_detail = _agent_loop_progress_detail(result)
+    if score < 1.0 and progress_detail:
+        console.print(f"       [dim italic]{progress_detail}[/dim italic]")
+
+
+def _agent_loop_progress_detail(result: dict) -> str:
+    passed = result.get("agent_loop_progress_passed")
+    total = result.get("agent_loop_progress_total")
+    if passed is None or total is None:
+        return ""
+    detail = f"progress={passed}/{total}"
+    termination = result.get("agent_loop_termination")
+    if termination:
+        detail += f"; termination={termination}"
+    return detail
 
 
 # ── summary tables ────────────────────────────────────────────────────────────
 
-def print_report(all_results: dict):
+def print_report(all_results: dict, expected_tasks: list[dict] | None = None):
     console.print("\n")
     console.rule("[bold white]BENCHMARK SUMMARY[/bold white]")
 
     models = list(all_results.keys())
-    categories = sorted({r["task"]["category"] for rs in all_results.values() for r in rs})
+    categories = sorted(
+        {r["task"]["category"] for rs in all_results.values() for r in rs}
+        | {t["category"] for t in (expected_tasks or [])}
+    )
 
     # Accuracy table
     acc = Table(box=box.ROUNDED, title="Accuracy by Category", show_lines=True)
@@ -130,6 +168,17 @@ def print_report(all_results: dict):
         total_row.append(f"[bold]{passed}/{len(rs)}  ({pct:.0f}%)[/bold]")
     acc.add_row(*total_row)
 
+    coverage_row = ["[dim]Coverage[/dim]"]
+    for m in models:
+        completed, expected = _coverage_counts(all_results[m], expected_tasks)
+        if expected and completed < expected:
+            coverage_row.append(f"[yellow]{completed}/{expected} tasks[/yellow]")
+        elif expected:
+            coverage_row.append(f"[dim]{completed}/{expected} tasks[/dim]")
+        else:
+            coverage_row.append("[dim]—[/dim]")
+    acc.add_row(*coverage_row)
+
     # Headline score row: exclude smoke/diagnostic tasks and high-contamination tasks.
     clean_row = ["[dim]Leaderboard core[/dim]"]
     for m in models:
@@ -144,8 +193,14 @@ def print_report(all_results: dict):
 
     comp_row = ["[bold]Composite ★[/bold]"]
     for m in models:
-        c = _composite_score(all_results[m])
-        comp_row.append(f"[bold]{c * 100:.1f}%[/bold]" if c is not None else "—")
+        c = _composite_score(all_results[m], expected_tasks=expected_tasks)
+        completed, expected = _coverage_counts(all_results[m], expected_tasks)
+        if c is not None:
+            comp_row.append(f"[bold]{c * 100:.1f}%[/bold]")
+        elif expected and completed < expected:
+            comp_row.append(f"[yellow]incomplete {completed}/{expected}[/yellow]")
+        else:
+            comp_row.append("—")
     acc.add_row(*comp_row)
     console.print(acc)
 
@@ -185,6 +240,7 @@ def print_report(all_results: dict):
         ("Avg Total (ms)",     lambda rs: _avg([r.get("total_ms") for r in rs])),
         ("Avg Output Tokens",  lambda rs: _avg([r.get("completion_tokens") for r in rs])),
         ("Avg Think Tokens",   lambda rs: _avg([r.get("reasoning_tokens") for r in rs])),
+        ("Total API Cost",     lambda rs: _sum_or_none([r.get("api_cost") for r in rs])),
         ("Peak VRAM (MB)",     lambda rs: max([r.get("peak_vram_mb") or 0 for r in rs] + [0]) or None),
         ("Avg GPU Util (%)",   lambda rs: _avg([r.get("avg_gpu_util") for r in rs if r.get("avg_gpu_util") is not None])),
     ]
@@ -192,7 +248,12 @@ def print_report(all_results: dict):
         row = [label]
         for m in models:
             val = fn(all_results[m])
-            row.append(f"{val:.1f}" if val is not None else "—")
+            if val is None:
+                row.append("—")
+            elif label == "Total API Cost":
+                row.append(f"${val:.4f}")
+            else:
+                row.append(f"{val:.1f}")
         perf.add_row(*row)
     console.print(perf)
 
@@ -399,7 +460,11 @@ def save_results(all_results: dict, output_dir: str):
         w.writerow(["model", "task_id", "task_version", "category", "benchmark_tier",
                     "contamination_risk", "execution_surface", "source_signal",
                     "human_minutes_estimate", "criticisms_addressed", "scoring_type",
-                    "score", "pass_threshold", "passed", "tps", "ttft_ms", "total_ms",
+                    "score", "score_std", "pass_threshold", "passed", "tps", "ttft_ms", "total_ms",
+                    "prompt_tokens", "completion_tokens", "reasoning_tokens", "total_tokens",
+                    "api_cost", "sample_count", "agent_loop_progress_score",
+                    "agent_loop_progress_passed", "agent_loop_progress_total",
+                    "agent_loop_termination",
                     "score_detail"])
         for model, results in all_results.items():
             for r in results:
@@ -417,11 +482,22 @@ def save_results(all_results: dict, output_dir: str):
                     _csv_value(task.get("criticisms_addressed", "")),
                     task.get("scoring", {}).get("type", ""),
                     r["score"],
+                    r.get("score_std", ""),
                     r.get("pass_threshold", ""),
                     result_passed(r),
                     r.get("tps", ""),
                     r.get("ttft_ms", ""),
                     r.get("total_ms", ""),
+                    r.get("prompt_tokens", ""),
+                    r.get("completion_tokens", ""),
+                    r.get("reasoning_tokens", ""),
+                    r.get("total_tokens", ""),
+                    r.get("api_cost", ""),
+                    r.get("sample_count", ""),
+                    r.get("agent_loop_progress_score", ""),
+                    r.get("agent_loop_progress_passed", ""),
+                    r.get("agent_loop_progress_total", ""),
+                    r.get("agent_loop_termination", ""),
                     r.get("score_detail", ""),
                 ])
     console.print(f"CSV  → [cyan]{csv_path}[/cyan]")

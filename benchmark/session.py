@@ -8,6 +8,7 @@ pieces are importable and testable without argparse.
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import statistics
@@ -31,6 +32,10 @@ from benchmark.scorer import score_response, score_pass_at_k
 
 console = make_console()
 
+RUN_FINGERPRINT_VERSION = 1
+_FINGERPRINT_OMIT_BENCH_KEYS = {"resume", "max_api_cost"}
+_SECRET_KEY_PARTS = ("key", "token", "secret", "password")
+
 
 @dataclass(frozen=True)
 class ManualModelSpec:
@@ -38,12 +43,134 @@ class ManualModelSpec:
     backend: str | None = None
 
 
+@dataclass
+class ApiCostBudget:
+    limit: float
+    spent: float = 0.0
+
+    @property
+    def exhausted(self) -> bool:
+        return self.spent >= self.limit
+
+    @property
+    def remaining(self) -> float:
+        return max(self.limit - self.spent, 0.0)
+
+    def add_result(self, result: dict) -> None:
+        raw_cost = result.get("api_cost")
+        if raw_cost in (None, ""):
+            return
+        try:
+            cost = float(raw_cost)
+        except (TypeError, ValueError):
+            return
+        if cost > 0:
+            self.spent += cost
+
+
+def resolve_api_cost_budget(bench_config: dict, cli_limit: float | None = None) -> ApiCostBudget | None:
+    raw_limit = cli_limit if cli_limit is not None else bench_config.get("max_api_cost")
+    if raw_limit in (None, ""):
+        return None
+    try:
+        limit = float(raw_limit)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"max_api_cost must be a non-negative number, got {raw_limit!r}") from exc
+    if limit < 0:
+        raise ValueError(f"max_api_cost must be non-negative, got {raw_limit!r}")
+    return ApiCostBudget(limit=limit)
+
+
+def run_fingerprint(
+    *,
+    model_info: ModelInfo,
+    backend,
+    bench_config: dict,
+    allow_code_exec: bool,
+    judge_model: str | None,
+) -> str:
+    payload = {
+        "version": RUN_FINGERPRINT_VERSION,
+        "model_id": model_info.id,
+        "model_backend_name": getattr(model_info, "backend_name", getattr(backend, "name", "")),
+        "model_details": _sanitize_for_fingerprint(getattr(model_info, "details", {})),
+        "backend_name": getattr(backend, "name", ""),
+        "backend_class": backend.__class__.__name__,
+        "backend_config": _sanitize_for_fingerprint(getattr(backend, "config", {})),
+        "bench_config": _sanitize_for_fingerprint({
+            key: value
+            for key, value in (bench_config or {}).items()
+            if key not in _FINGERPRINT_OMIT_BENCH_KEYS
+        }),
+        "allow_code_exec": bool(allow_code_exec),
+        "judge_model": judge_model or None,
+    }
+    encoded = json.dumps(payload, sort_keys=True, separators=(",", ":"), default=str)
+    return hashlib.sha256(encoded.encode("utf-8")).hexdigest()[:16]
+
+
+def _sanitize_for_fingerprint(value):
+    if isinstance(value, dict):
+        clean = {}
+        for key, item in value.items():
+            key_text = str(key)
+            if any(part in key_text.lower() for part in _SECRET_KEY_PARTS):
+                clean[key_text] = "<redacted>"
+            else:
+                clean[key_text] = _sanitize_for_fingerprint(item)
+        return clean
+    if isinstance(value, list):
+        return [_sanitize_for_fingerprint(item) for item in value]
+    if isinstance(value, tuple):
+        return tuple(_sanitize_for_fingerprint(item) for item in value)
+    return value
+
+
 def load_config(path: str) -> dict:
     cfg_path = Path(path)
     if not cfg_path.exists():
         console.print(f"[red]Config not found: {cfg_path}[/red]")
         sys.exit(1)
-    return yaml.safe_load(cfg_path.read_text(encoding="utf-8"))
+    config = yaml.safe_load(cfg_path.read_text(encoding="utf-8")) or {}
+    _load_config_secrets(config, cfg_path.parent)
+    return config
+
+
+def _load_config_secrets(config: dict, base_dir: Path) -> None:
+    raw_paths = config.get("secrets_files", config.get("secrets_file"))
+    if not raw_paths:
+        return
+    paths = raw_paths if isinstance(raw_paths, list) else [raw_paths]
+    for raw_path in paths:
+        secrets_path = Path(str(raw_path))
+        if not secrets_path.is_absolute():
+            secrets_path = base_dir / secrets_path
+        _load_env_file(secrets_path)
+
+
+def _load_env_file(path: Path) -> None:
+    if not path.exists():
+        return
+    for raw_line in path.read_text(encoding="utf-8").splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("#"):
+            continue
+        if line.startswith("export "):
+            line = line[len("export "):].strip()
+        if "=" not in line:
+            continue
+        key, value = line.split("=", 1)
+        key = key.strip()
+        if not key or key in os.environ:
+            continue
+        os.environ[key] = _strip_env_value(value)
+
+
+def _strip_env_value(value: str) -> str:
+    stripped = value.strip()
+    if len(stripped) >= 2 and stripped[0] == stripped[-1] and stripped[0] in {"'", '"'}:
+        return stripped[1:-1]
+    return stripped
 
 
 def _parse_manual_model_specs(raw_models: list | None) -> list[ManualModelSpec]:
@@ -293,6 +420,7 @@ def run_model(
     judge_client,
     judge_model: str | None,
     result_label: str | None = None,
+    api_cost_budget: ApiCostBudget | None = None,
 ) -> list[dict]:
     """
     Run all tasks for one model and return the list of scored results.
@@ -301,14 +429,29 @@ def run_model(
     still calling the API with the real model id.
     """
     label = result_label or model_info.id
+    fingerprint = run_fingerprint(
+        model_info=model_info,
+        backend=backend,
+        bench_config=bench_config,
+        allow_code_exec=allow_code_exec,
+        judge_model=judge_model,
+    )
     runner = None
     model_results: list = []
     for task in tasks:
-        key = cache_key(label, task)
+        key = cache_key(label, task, run_fingerprint=fingerprint)
         if key in cached_records:
             console.print(f"  [dim]↩  {task['id']:40s}  (cached — skipped)[/dim]")
             model_results.append(from_record(task, cached_records[key]))
             continue
+
+        if api_cost_budget and api_cost_budget.exhausted:
+            console.print(
+                f"  [yellow]API cost budget exhausted "
+                f"(${api_cost_budget.spent:.4f} / ${api_cost_budget.limit:.4f}); "
+                f"stopping before {task['id']}[/yellow]"
+            )
+            break
 
         scoring_type = task.get("scoring", {}).get("type")
         if scoring_type == "agent_loop" and not allow_code_exec:
@@ -320,9 +463,12 @@ def run_model(
                 judge_model=judge_model,
             )
             scored["model_id"] = label
+            scored["run_fingerprint"] = fingerprint
             model_results.append(scored)
             print_task_result(scored)
             append_jsonl(scored, jsonl_path)
+            if api_cost_budget:
+                api_cost_budget.add_result(scored)
             continue
 
         if runner is None:
@@ -373,8 +519,11 @@ def run_model(
                     annotate_pass(scored)
 
         scored["model_id"] = label
+        scored["run_fingerprint"] = fingerprint
         model_results.append(scored)
         print_task_result(scored)
         append_jsonl(scored, jsonl_path)
+        if api_cost_budget:
+            api_cost_budget.add_result(scored)
 
     return model_results

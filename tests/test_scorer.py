@@ -337,6 +337,87 @@ class TestJsonKeys:
         assert s == 1.0
 
 
+# ── json_schema ───────────────────────────────────────────────────────────────
+
+class TestJsonSchema:
+    def test_expected_values_match_dotted_paths(self):
+        s, _ = score(
+            {
+                "type": "json_schema",
+                "root": "object",
+                "required_keys": ["title", "attendees"],
+                "array_keys": ["attendees"],
+                "expected_values": {
+                    "title": {"contains": "review"},
+                    "attendees": {"contains": ["Alice", "Bob"]},
+                },
+            },
+            '{"title": "Product review sync", "attendees": ["Alice", "Bob", "Carol"]}',
+        )
+
+        assert s == 1.0
+
+    def test_expected_values_match_unordered_array_matchers(self):
+        s, _ = score(
+            {
+                "type": "json_schema",
+                "root": "object",
+                "required_keys": ["action_items"],
+                "array_keys": ["action_items"],
+                "expected_values": {
+                    "action_items": {
+                        "contains": [
+                            {"regex": "roadmap|slides"},
+                            {"regex": "staging"},
+                            {"regex": "mockups|mockup"},
+                        ]
+                    }
+                },
+            },
+            '{"action_items": ["Deploy staging fix", "Prepare roadmap slides", "Review mockups"]}',
+        )
+
+        assert s == 1.0
+
+    def test_expected_items_match_partial_objects_in_arrays(self):
+        s, _ = score(
+            {
+                "type": "json_schema",
+                "root": "array",
+                "min_items": 2,
+                "required_keys": ["name", "email"],
+                "expected_items": [
+                    {"name": "Sarah Chen", "email": "sarah.chen@techcorp.com"},
+                    {"name": "Marcus Webb", "email": "marcus@techcorp.com"},
+                ],
+            },
+            (
+                '[{"name": "Marcus Webb", "email": "marcus@techcorp.com"}, '
+                '{"name": "Sarah Chen", "email": "sarah.chen@techcorp.com", "role": "VP"}]'
+            ),
+        )
+
+        assert s == 1.0
+
+    def test_expected_values_reject_wrong_semantic_content(self):
+        s, d = score(
+            {
+                "type": "json_schema",
+                "root": "array",
+                "min_items": 1,
+                "required_keys": ["name", "email"],
+                "expected_values": {
+                    "0.name": "Sarah Chen",
+                    "0.email": "sarah.chen@techcorp.com",
+                },
+            },
+            '[{"name": "Alice", "email": "alice@example.com"}]',
+        )
+
+        assert s == 0.0
+        assert "expected" in d
+
+
 # ── line_count ────────────────────────────────────────────────────────────────
 
 class TestLineCount:
@@ -591,6 +672,36 @@ class TestPassAtK:
         )
         result = score_pass_at_k(task, runs)
         assert result["score"] == pytest.approx(0.9, abs=1e-9)
+
+    def test_usage_metadata_is_aggregated_across_samples(self):
+        task = self._pass_k_task("contains", {"value": "hello"})
+        task["scoring"]["k"] = 2
+        runs = [
+            {
+                **self._make_raw("hello"),
+                "prompt_tokens": 3,
+                "completion_tokens": 5,
+                "reasoning_tokens": 1,
+                "total_tokens": 8,
+                "api_cost": 0.001,
+            },
+            {
+                **self._make_raw("nope"),
+                "prompt_tokens": 4,
+                "completion_tokens": 6,
+                "reasoning_tokens": 2,
+                "total_tokens": 10,
+                "api_cost": 0.002,
+            },
+        ]
+
+        result = score_pass_at_k(task, runs)
+
+        assert result["prompt_tokens"] == 7
+        assert result["completion_tokens"] == 11
+        assert result["reasoning_tokens"] == 3
+        assert result["total_tokens"] == 18
+        assert result["api_cost"] == pytest.approx(0.003)
 
 
 # ── logprob_choice ────────────────────────────────────────────────────────────

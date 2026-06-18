@@ -15,6 +15,20 @@ from pathlib import Path
 _FENCED_RE = re.compile(r"```(?P<header>[^\n`]*)\n(?P<body>.*?)```", re.DOTALL)
 _LAUNCH_ERROR = 127
 _TIMEOUT_ERROR = 124
+_PROTECTED_FILENAMES = {
+    "conftest.py",
+    "pytest.ini",
+    "tox.ini",
+    "sitecustomize.py",
+}
+_PROTECTED_ROOT_FILES = {
+    "pyproject.toml",
+    "setup.cfg",
+}
+_PROTECTED_DIRS = {
+    ".llm_bench_sentinel",
+    "tests",
+}
 _ENV_KEEP = {
     "PATH",
     "SYSTEMROOT",
@@ -109,6 +123,10 @@ def _apply_response(response: str, workspace: Path) -> tuple[bool, str, int]:
 
     diff = _extract_unified_diff(response)
     if diff:
+        protected_path = _first_protected_diff_path(diff)
+        if protected_path:
+            return False, f"repo_patch: protected path rejected: {protected_path}", 0
+
         ok, detail, changed = _apply_simple_unified_diff(diff, workspace)
         if ok:
             return True, detail, changed
@@ -197,11 +215,18 @@ def _extract_unified_diff(response: str) -> str | None:
     return None
 
 
-def _write_files(workspace: Path, files: dict[str, str]) -> tuple[bool, str]:
+def _write_files(
+    workspace: Path,
+    files: dict[str, str],
+    *,
+    allow_protected_paths: bool = False,
+) -> tuple[bool, str]:
     for rel, content in files.items():
         safe_target = _safe_target(workspace, rel)
         if safe_target is None:
             return False, f"repo_patch: unsafe path rejected: {rel}"
+        if not allow_protected_paths and _is_protected_harness_path(rel):
+            return False, f"repo_patch: protected path rejected: {rel}"
         safe_target.parent.mkdir(parents=True, exist_ok=True)
         safe_target.write_text(content, encoding="utf-8")
     return True, f"repo_patch: wrote {len(files)} file(s)"
@@ -215,7 +240,7 @@ def _write_hidden_tests(workspace: Path, hidden_tests: list) -> tuple[bool, str]
         if not isinstance(item, dict) or not item.get("path") or not isinstance(item.get("content"), str):
             return False, "repo_patch: hidden_tests entries require path and content"
         files[str(item["path"])] = item["content"]
-    ok, detail = _write_files(workspace, files)
+    ok, detail = _write_files(workspace, files, allow_protected_paths=True)
     if not ok:
         return False, detail
     return True, f"repo_patch: wrote {len(files)} hidden test file(s)"
@@ -232,6 +257,47 @@ def _safe_target(workspace: Path, rel: str) -> Path | None:
     except ValueError:
         return None
     return target
+
+
+def _is_protected_harness_path(rel: str) -> bool:
+    parts = _normal_rel_parts(rel)
+    if not parts:
+        return False
+    if any(part in _PROTECTED_DIRS for part in parts):
+        return True
+    name = parts[-1]
+    if name in _PROTECTED_FILENAMES:
+        return True
+    return len(parts) == 1 and name in _PROTECTED_ROOT_FILES
+
+
+def _normal_rel_parts(rel: str) -> tuple[str, ...]:
+    rel_path = Path(str(rel).replace("\\", "/"))
+    if rel_path.is_absolute():
+        return ()
+    return tuple(part.lower() for part in rel_path.parts if part not in {"", "."})
+
+
+def _first_protected_diff_path(diff: str) -> str | None:
+    for rel in _iter_diff_paths(diff):
+        if _is_protected_harness_path(rel):
+            return rel
+    return None
+
+
+def _iter_diff_paths(diff: str):
+    for line in diff.splitlines():
+        if line.startswith("diff --git "):
+            match = re.match(r"diff --git\s+a/(?P<old>\S+)\s+b/(?P<new>\S+)", line)
+            if match:
+                yield match.group("old")
+                yield match.group("new")
+            continue
+        if line.startswith(("--- ", "+++ ")):
+            raw = line[4:].strip()
+            if raw == "/dev/null":
+                continue
+            yield raw[2:] if raw.startswith(("a/", "b/")) else raw
 
 
 def _run_test_command(command, workspace: Path, timeout_s: float) -> subprocess.CompletedProcess:

@@ -174,6 +174,18 @@ tasks:
         - name
         - role
         - email
+      expected_items:
+        - name: Sarah Chen
+          role:
+            contains: VP of Engineering
+          email: sarah.chen@techcorp.com
+        - name: Marcus Webb
+          role: null
+          email: marcus@techcorp.com
+        - name: Yuki Tanaka
+          role:
+            contains: CTO
+          email: null
 
   - id: extract_002
     category: agentic
@@ -203,6 +215,19 @@ tasks:
       array_keys:
         - attendees
         - action_items
+      expected_values:
+        title:
+          contains: Product review
+        attendees:
+          contains:
+            - Alice
+            - Bob
+            - Carol
+        action_items:
+          contains:
+            - regex: roadmap|slides
+            - regex: staging
+            - regex: mockups|mockup
 
   # ── Test quality ─────────────────────────────────────────────────────────────
   # Detects "coverage theater": models that write tests but never mock external
@@ -387,7 +412,7 @@ tasks:
 
   - id: workflow_trace_repo_repair_001
     category: agentic
-    benchmark_tier: repo_agent
+    benchmark_tier: diagnostic
     difficulty: hard
     execution_surface: local_workspace_repair
     source_signal: workspace-repair

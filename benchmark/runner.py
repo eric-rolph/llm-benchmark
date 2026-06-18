@@ -21,7 +21,8 @@ from benchmark.responses_api import (
     messages_to_responses_input,
     response_output_text,
     response_reasoning_preview,
-    response_usage_tokens,
+    response_usage_metadata,
+    usage_metadata,
 )
 from benchmark.utils import strip_thinking, _avg
 
@@ -307,6 +308,7 @@ class ModelRunner:
                 choice_text = sorted_probs[0][0]
 
         completion_tokens = getattr(resp.usage, "completion_tokens", 0) if resp.usage else 0
+        usage_meta = usage_metadata(getattr(resp, "usage", None))
         trace["events"].append({
             "event": "response_complete",
             "elapsed_ms": round(total_ms, 1),
@@ -321,8 +323,11 @@ class ModelRunner:
             "ttft_ms": round(total_ms, 1),  # Non-streaming: TTFT ≈ total
             "total_ms": round(total_ms, 1),
             "tps": None,  # Not meaningful for 1-token generation
+            "prompt_tokens": usage_meta["prompt_tokens"],
             "completion_tokens": completion_tokens,
             "reasoning_tokens": 0,
+            "total_tokens": usage_meta["total_tokens"],
+            "api_cost": usage_meta["api_cost"],
             "backend": self.backend.name,
             "logprob_detail": logprob_detail,
             "hf_generation_config": dict(self.hf_generation_config),
@@ -342,6 +347,7 @@ class ModelRunner:
                 bench_config=self.bench,
                 use_responses_api=self._use_responses_api(task),
                 responses_params=self._responses_params(task),
+                chat_params=self.backend.get_extra_chat_params(task),
             )
         if scoring_type == "logprob_choice":
             return self._run_once_logprobs(task)
@@ -378,6 +384,9 @@ class ModelRunner:
         reasoning_text = ""
         completion_tokens = 0
         reasoning_tokens  = 0
+        prompt_tokens = 0
+        total_tokens = 0
+        api_cost: float | None = None
         trace = {
             "surface": task.get("execution_surface", "model_response"),
             "scoring_type": scoring_type,
@@ -449,14 +458,12 @@ class ModelRunner:
 
                 if getattr(chunk, "usage", None):
                     usage = chunk.usage
-                    completion_tokens = usage.completion_tokens or 0
-                    # Read reasoning_tokens from usage details when available
-                    # (supported by OpenAI, OpenRouter, and LM Studio ≥ 0.3.6)
-                    details = getattr(usage, "completion_tokens_details", None)
-                    if details:
-                        rt = getattr(details, "reasoning_tokens", None)
-                        if rt is not None:
-                            reasoning_tokens = int(rt)
+                    meta = usage_metadata(usage)
+                    completion_tokens = meta["completion_tokens"]
+                    reasoning_tokens = meta["reasoning_tokens"]
+                    prompt_tokens = meta["prompt_tokens"]
+                    total_tokens = meta["total_tokens"]
+                    api_cost = meta["api_cost"]
 
         except Exception as e:
             telemetry.stop()
@@ -518,8 +525,11 @@ class ModelRunner:
             "ttft_ms": round(ttft_ms, 1) if ttft_ms else None,
             "total_ms": round(total_ms, 1),
             "tps": tps,
+            "prompt_tokens": prompt_tokens,
             "completion_tokens": completion_tokens,
             "reasoning_tokens": reasoning_tokens,
+            "total_tokens": total_tokens,
+            "api_cost": api_cost,
             "backend": self.backend.name,
             "hf_generation_config": dict(self.hf_generation_config),
             "execution_trace": trace,
@@ -571,7 +581,9 @@ class ModelRunner:
 
         telemetry_data = telemetry.stop()
         total_ms = (time.perf_counter() - t_start) * 1000
-        completion_tokens, reasoning_tokens = response_usage_tokens(response)
+        usage_meta = response_usage_metadata(response)
+        completion_tokens = usage_meta["completion_tokens"]
+        reasoning_tokens = usage_meta["reasoning_tokens"]
         text = response_output_text(response)
         status = getattr(response, "status", None)
         incomplete = getattr(response, "incomplete_details", None)
@@ -602,8 +614,11 @@ class ModelRunner:
             "ttft_ms": round(total_ms, 1),
             "total_ms": round(total_ms, 1),
             "tps": tps,
+            "prompt_tokens": usage_meta["prompt_tokens"],
             "completion_tokens": completion_tokens,
             "reasoning_tokens": reasoning_tokens,
+            "total_tokens": usage_meta["total_tokens"],
+            "api_cost": usage_meta["api_cost"],
             "backend": self.backend.name,
             "hf_generation_config": dict(self.hf_generation_config),
             "execution_trace": trace,
@@ -625,17 +640,43 @@ class ModelRunner:
         avg_ttft  = _avg([r["ttft_ms"]  for r in results])
         avg_total = _avg([r["total_ms"] for r in results])
         avg_tps   = _avg([r["tps"]      for r in results])
-        return {
+        aggregated = {
             **last,
             "error":    errors[-1]["error"] if len(errors) == len(results) else None,
             "ttft_ms":  round(avg_ttft,  1) if avg_ttft  is not None else None,
             "total_ms": round(avg_total, 1) if avg_total is not None else None,
             "tps":      round(avg_tps,   1) if avg_tps   is not None else None,
+            "sample_count": len(results),
             # All individual run results — used by run.py to compute score variance.
             # Prefixed with _ to signal it is internal/transient (not written to JSONL).
             "_all_runs": results,
         }
+        for field in ("prompt_tokens", "completion_tokens", "reasoning_tokens", "total_tokens", "api_cost"):
+            total = _sum_numeric_result_field(results, field)
+            if total is not None:
+                aggregated[field] = total
+        return aggregated
 
     def run_task_k(self, task: dict, k: int) -> list[dict]:
         """Run the task k independent times (used for pass@k scoring)."""
         return [self._run_once(task) for _ in range(k)]
+
+
+def _sum_numeric_result_field(results: list[dict], field: str) -> int | float | None:
+    values = []
+    for result in results:
+        raw = result.get(field)
+        if raw in (None, ""):
+            continue
+        try:
+            values.append(float(raw))
+        except (TypeError, ValueError):
+            continue
+    if not values:
+        return None
+    total = sum(values)
+    if field == "api_cost":
+        return round(total, 8)
+    if total.is_integer():
+        return int(total)
+    return total

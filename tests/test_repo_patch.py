@@ -100,6 +100,41 @@ def test_repo_patch_rejects_unsafe_paths(tmp_path):
     assert "unsafe path" in scored["score_detail"].lower()
 
 
+def test_repo_patch_rejects_hidden_test_collection_sabotage(tmp_path):
+    task = _task(tmp_path)
+    response = (
+        '{"files": {'
+        '"conftest.py": "def pytest_ignore_collect(collection_path, config):\\n'
+        '    return collection_path.name.startswith(\\"test_hidden\\")\\n"'
+        '}}'
+    )
+
+    scored = score_response(task, _result(response), allow_code_exec=True)
+
+    assert scored["score"] == 0.0
+    assert "protected path" in scored["score_detail"].lower()
+
+
+def test_repo_patch_rejects_diff_that_adds_pytest_control_file(tmp_path):
+    task = _task(tmp_path)
+    response = """
+```diff
+diff --git a/conftest.py b/conftest.py
+new file mode 100644
+--- /dev/null
++++ b/conftest.py
+@@ -0,0 +1,2 @@
++def pytest_ignore_collect(collection_path, config):
++    return collection_path.name.startswith("test_hidden")
+```
+"""
+
+    scored = score_response(task, _result(response), allow_code_exec=True)
+
+    assert scored["score"] == 0.0
+    assert "protected path" in scored["score_detail"].lower()
+
+
 def test_repo_patch_applies_unified_diff_blocks(tmp_path):
     task = _task(tmp_path)
     response = """

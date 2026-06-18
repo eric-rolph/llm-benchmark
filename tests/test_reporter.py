@@ -3,9 +3,14 @@ tests/test_reporter.py — unit tests for reporter helper functions.
 
 Run with:  pytest tests/test_reporter.py -v
 """
+from io import StringIO
+
 import pytest
+
+import benchmark.reporter as reporter
+from benchmark.console import make_console
 from benchmark.evaluation import CATEGORY_WEIGHTS
-from benchmark.reporter import _composite_score
+from benchmark.reporter import _composite_score, _coverage_counts
 
 
 def make_result(category: str, score: float, **task_extra) -> dict:
@@ -75,3 +80,39 @@ class TestCompositeScore:
 
         assert _composite_score(results) == pytest.approx(1.0)
         assert _composite_score(results, core_only=False) == pytest.approx(0.25)
+
+    def test_coverage_counts_expected_task_matrix(self):
+        expected = [
+            {"id": "task_a", "category": "coding"},
+            {"id": "task_b", "category": "coding"},
+        ]
+        results = [make_result("coding", 1.0, id="task_a")]
+
+        assert _coverage_counts(results, expected) == (1, 2)
+
+    def test_composite_is_suppressed_for_incomplete_expected_task_matrix(self):
+        expected = [
+            {"id": "task_a", "category": "coding"},
+            {"id": "task_b", "category": "coding"},
+        ]
+        results = [make_result("coding", 1.0, id="task_a")]
+
+        assert _composite_score(results, expected_tasks=expected) is None
+
+
+def test_print_task_result_shows_agent_loop_progress(monkeypatch):
+    stream = StringIO()
+    monkeypatch.setattr(reporter, "console", make_console(file=stream))
+    result = make_result("agent_loop", 0.0, id="agent_loop_partial")
+    result.update({
+        "score_detail": "agent_loop: max steps reached without final",
+        "agent_loop_progress_passed": 3,
+        "agent_loop_progress_total": 7,
+        "agent_loop_termination": "max_steps",
+    })
+
+    reporter.print_task_result(result)
+
+    output = stream.getvalue()
+    assert "progress=3/7" in output
+    assert "termination=max_steps" in output

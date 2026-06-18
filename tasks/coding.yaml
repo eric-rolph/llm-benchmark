@@ -489,8 +489,9 @@ tasks:
 
     introduced: 2026-06-04
     category: coding
-    benchmark_tier: fresh
+    benchmark_tier: diagnostic
     difficulty: hard
+    contamination_risk: high
     description: "Word Dictionary (Trie) with wildcard search"
     prompt: |
       Write a Python class called `WordDictionary` that supports adding words and searching for them.
@@ -518,8 +519,9 @@ tasks:
 
     introduced: 2026-06-04
     category: coding
-    benchmark_tier: fresh
+    benchmark_tier: diagnostic
     difficulty: hard
+    contamination_risk: high
     description: "Miniature regular expression matching engine"
     prompt: |
       Write a Python function called `is_match(text: str, pattern: str) -> bool` that implements
@@ -543,8 +545,9 @@ tasks:
 
     introduced: 2026-06-04
     category: coding
-    benchmark_tier: fresh
+    benchmark_tier: diagnostic
     difficulty: hard
+    contamination_risk: high
     description: "Serialize and Deserialize Binary Tree"
     prompt: |
       Write a Python class `TreeNode` with `val`, `left`, and `right` attributes,

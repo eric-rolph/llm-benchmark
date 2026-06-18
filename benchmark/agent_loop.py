@@ -1,6 +1,7 @@
 """Observed agent-loop execution for local repo development tasks."""
 from __future__ import annotations
 
+from copy import deepcopy
 import json
 import re
 import shutil
@@ -16,6 +17,7 @@ from benchmark.repo_patch import (
     _run_test_command,
     _safe_target,
     _sentinel_completed,
+    _is_protected_harness_path,
     _truncate,
     _validate_test_command,
     _write_hidden_tests,
@@ -23,7 +25,8 @@ from benchmark.repo_patch import (
 from benchmark.responses_api import (
     messages_to_responses_input,
     response_output_text,
-    response_usage_tokens,
+    response_usage_metadata,
+    usage_metadata,
 )
 
 
@@ -41,6 +44,84 @@ Use relative paths only. Hidden tests are not visible during the loop."""
 
 _ALLOWED_TOOLS = {"list_files", "read_file", "write_file", "run_tests", "final"}
 
+_AGENT_TOOL_SCHEMAS = [
+    {
+        "type": "function",
+        "function": {
+            "name": "list_files",
+            "description": "List files under a relative directory in the workspace.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "path": {
+                        "type": "string",
+                        "description": "Relative directory path. Use . for the workspace root.",
+                    },
+                },
+                "additionalProperties": False,
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "read_file",
+            "description": "Read a UTF-8 text file from a relative workspace path.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "path": {"type": "string", "description": "Relative file path to read."},
+                },
+                "required": ["path"],
+                "additionalProperties": False,
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "write_file",
+            "description": "Replace a relative workspace file with complete UTF-8 contents.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "path": {"type": "string", "description": "Relative file path to write."},
+                    "content": {"type": "string", "description": "Complete replacement file contents."},
+                },
+                "required": ["path", "content"],
+                "additionalProperties": False,
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "run_tests",
+            "description": "Run the visible test command in the workspace.",
+            "parameters": {
+                "type": "object",
+                "properties": {},
+                "additionalProperties": False,
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "final",
+            "description": "Finish the loop when the workspace is ready for hidden tests.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "summary": {"type": "string", "description": "Short summary of the completed fix."},
+                },
+                "required": ["summary"],
+                "additionalProperties": False,
+            },
+        },
+    },
+]
+
 
 def run_agent_loop(
     *,
@@ -51,6 +132,7 @@ def run_agent_loop(
     bench_config: dict,
     use_responses_api: bool = False,
     responses_params: dict | None = None,
+    chat_params: dict | None = None,
 ) -> dict:
     """Run an observed tool-use loop against a copied fixture repo."""
     scoring = task.get("scoring", {})
@@ -72,6 +154,9 @@ def run_agent_loop(
     t_start = time.perf_counter()
     completion_tokens = 0
     reasoning_tokens = 0
+    prompt_tokens = 0
+    total_tokens = 0
+    api_cost = 0.0
     trace = {
         "surface": task.get("execution_surface", "observed_agent_loop"),
         "scoring_type": "agent_loop",
@@ -93,7 +178,7 @@ def run_agent_loop(
 
         for step in range(1, max_steps + 1):
             try:
-                content, tokens, step_reasoning_tokens = _call_model(
+                content, usage_meta, native_tool_context = _call_model(
                     client,
                     model_id,
                     messages,
@@ -102,14 +187,20 @@ def run_agent_loop(
                     bench_config,
                     use_responses_api=use_responses_api,
                     responses_params=responses_params or {},
+                    chat_params=chat_params or {},
                 )
             except Exception as exc:
                 return _finish_result(
                     task, backend_name, trace, t_start, completion_tokens,
-                    reasoning_tokens, 0.0, f"agent_loop API error: {exc}", final_summary,
+                    reasoning_tokens, prompt_tokens, total_tokens, api_cost,
+                    0.0, f"agent_loop API error: {exc}", final_summary,
+                    termination="api_error",
                 )
-            completion_tokens += tokens
-            reasoning_tokens += step_reasoning_tokens
+            completion_tokens += usage_meta["completion_tokens"]
+            reasoning_tokens += usage_meta["reasoning_tokens"]
+            prompt_tokens += usage_meta["prompt_tokens"]
+            total_tokens += usage_meta["total_tokens"]
+            api_cost += usage_meta["api_cost"] or 0.0
 
             action = _extract_action(content)
             if action is None:
@@ -121,7 +212,9 @@ def run_agent_loop(
                 })
                 return _finish_result(
                     task, backend_name, trace, t_start, completion_tokens,
-                    reasoning_tokens, 0.0, f"agent_loop: invalid action JSON: {preview}", preview,
+                    reasoning_tokens, prompt_tokens, total_tokens, api_cost,
+                    0.0, f"agent_loop: invalid action JSON: {preview}", preview,
+                    termination="invalid_action",
                 )
 
             tool = str(action.get("tool", "")).strip()
@@ -140,21 +233,43 @@ def run_agent_loop(
                 score, final_detail = _score_final_workspace(workspace, scoring, command)
                 return _finish_result(
                     task, backend_name, trace, t_start, completion_tokens,
-                    reasoning_tokens, score, final_detail, final_summary,
+                    reasoning_tokens, prompt_tokens, total_tokens, api_cost,
+                    score, final_detail, final_summary,
+                    termination="final",
                 )
 
-            messages.append({"role": "assistant", "content": content})
-            messages.append({"role": "user", "content": f"OBSERVATION:\n{observation}\n\nReturn the next JSON action."})
+            if native_tool_context is not None:
+                if native_tool_context.get("api") == "responses":
+                    messages.extend(native_tool_context["response_items"])
+                    messages.append({
+                        "type": "function_call_output",
+                        "call_id": native_tool_context["tool_call_id"],
+                        "output": observation,
+                    })
+                else:
+                    messages.append(native_tool_context["assistant_message"])
+                    messages.append({
+                        "role": "tool",
+                        "tool_call_id": native_tool_context["tool_call_id"],
+                        "content": observation,
+                    })
+            else:
+                messages.append({"role": "assistant", "content": content})
+                messages.append({"role": "user", "content": f"OBSERVATION:\n{observation}\n\nReturn the next JSON action."})
 
             if should_stop:
                 return _finish_result(
                     task, backend_name, trace, t_start, completion_tokens,
-                    reasoning_tokens, 0.0, observation, final_summary,
+                    reasoning_tokens, prompt_tokens, total_tokens, api_cost,
+                    0.0, observation, final_summary,
+                    termination="stopped",
                 )
 
         return _finish_result(
             task, backend_name, trace, t_start, completion_tokens,
-            reasoning_tokens, 0.0, f"agent_loop: max steps ({max_steps}) reached without final", final_summary,
+            reasoning_tokens, prompt_tokens, total_tokens, api_cost,
+            0.0, f"agent_loop: max steps ({max_steps}) reached without final", final_summary,
+            termination="max_steps",
         )
 
 
@@ -193,35 +308,129 @@ def _call_model(
     *,
     use_responses_api: bool = False,
     responses_params: dict | None = None,
-) -> tuple[str, int, int]:
+    chat_params: dict | None = None,
+) -> tuple[str, dict, dict | None]:
     if use_responses_api:
         response = client.responses.create(
-            model=model_id,
-            input=messages_to_responses_input(messages),
-            timeout=bench_config.get("timeout", 180),
-            **(responses_params or {}),
+            **_responses_kwargs(
+                model_id,
+                messages,
+                task,
+                scoring,
+                bench_config,
+                responses_params or {},
+            )
         )
-        output_tokens, reasoning_tokens = response_usage_tokens(response)
-        return response_output_text(response), output_tokens, reasoning_tokens
+        native_tool_context = _response_native_tool_context(response)
+        content = _first_nonblank(
+            response_output_text(response),
+            native_tool_context["action_text"] if native_tool_context else None,
+        )
+        return content, response_usage_metadata(response), native_tool_context
 
     response = client.chat.completions.create(
-        model=model_id,
-        messages=messages,
-        temperature=task.get("temperature", bench_config.get("temperature", 0.0)),
-        max_tokens=int(scoring.get("action_max_tokens", min(bench_config.get("max_tokens", 4096), 2048))),
-        stream=False,
-        timeout=bench_config.get("timeout", 180),
+        **_chat_completion_kwargs(
+            model_id,
+            messages,
+            task,
+            scoring,
+            bench_config,
+            chat_params or {},
+        )
     )
     message = response.choices[0].message
-    content = (
-        message.content
-        or getattr(message, "reasoning_content", None)
-        or getattr(message, "thinking", None)
-        or ""
+    native_tool_context = _message_native_tool_context(message)
+    content = _first_nonblank(
+        message.content,
+        native_tool_context["action_text"] if native_tool_context else None,
+        getattr(message, "reasoning_content", None),
+        getattr(message, "thinking", None),
+        getattr(message, "reasoning", None),
     )
     usage = getattr(response, "usage", None)
-    tokens = int(getattr(usage, "completion_tokens", 0) or 0)
-    return content, tokens, 0
+    return content, usage_metadata(usage), native_tool_context
+
+
+def _chat_completion_kwargs(
+    model_id: str,
+    messages: list[dict],
+    task: dict,
+    scoring: dict,
+    bench_config: dict,
+    chat_params: dict,
+) -> dict:
+    kwargs = {
+        "model": model_id,
+        "messages": messages,
+        "temperature": task.get("temperature", bench_config.get("temperature", 0.0)),
+        "max_tokens": int(
+            scoring.get("action_max_tokens", min(bench_config.get("max_tokens", 4096), 2048))
+        ),
+        "stream": False,
+        "timeout": bench_config.get("timeout", 180),
+    }
+    kwargs.update(chat_params)
+    if _native_tools_enabled(task, scoring, bench_config):
+        kwargs["tools"] = _agent_tool_schemas()
+        kwargs["tool_choice"] = "auto"
+    return kwargs
+
+
+def _native_tools_enabled(task: dict, scoring: dict, bench_config: dict) -> bool:
+    if "native_tools" in scoring:
+        return bool(scoring["native_tools"])
+    if "agent_loop_native_tools" in task:
+        return bool(task["agent_loop_native_tools"])
+    return bool(bench_config.get("agent_loop_native_tools", False))
+
+
+def _agent_tool_schemas() -> list[dict]:
+    return deepcopy(_AGENT_TOOL_SCHEMAS)
+
+
+def _responses_kwargs(
+    model_id: str,
+    messages: list[dict],
+    task: dict,
+    scoring: dict,
+    bench_config: dict,
+    responses_params: dict,
+) -> dict:
+    kwargs = {
+        "model": model_id,
+        "input": messages_to_responses_input(messages),
+        "timeout": bench_config.get("timeout", 180),
+    }
+    kwargs.update(responses_params)
+    if _native_tools_enabled(task, scoring, bench_config):
+        kwargs["tools"] = _responses_tool_schemas()
+        kwargs["tool_choice"] = "auto"
+        kwargs["parallel_tool_calls"] = False
+    return kwargs
+
+
+def _responses_tool_schemas() -> list[dict]:
+    tools = []
+    for schema in _AGENT_TOOL_SCHEMAS:
+        function = schema["function"]
+        tools.append({
+            "type": "function",
+            "name": function["name"],
+            "description": function.get("description"),
+            "parameters": deepcopy(function.get("parameters") or {}),
+            "strict": False,
+        })
+    return tools
+
+
+def _first_nonblank(*values) -> str:
+    for value in values:
+        if value is None:
+            continue
+        text = str(value)
+        if text.strip():
+            return text
+    return ""
 
 
 def _extract_action(text: str) -> dict | None:
@@ -250,6 +459,9 @@ def _extract_action(text: str) -> dict | None:
     tool_colon = _extract_tool_colon_json_action(text)
     if tool_colon is not None:
         return tool_colon
+    kimi_tool_call = _extract_kimi_tool_call_section_action(text)
+    if kimi_tool_call is not None:
+        return kimi_tool_call
     function_call = _extract_function_call_action(text)
     if function_call is not None:
         return function_call
@@ -257,6 +469,103 @@ def _extract_action(text: str) -> dict | None:
     if lenient_write is not None:
         return lenient_write
     return _extract_tool_call_tag_action(text)
+
+
+def _message_tool_call_action_text(message) -> str | None:
+    context = _message_native_tool_context(message)
+    return context["action_text"] if context else None
+
+
+def _response_native_tool_context(response) -> dict | None:
+    for item in getattr(response, "output", None) or []:
+        if _get_attr_or_key(item, "type") != "function_call":
+            continue
+        raw_name = _get_attr_or_key(item, "name")
+        if not raw_name:
+            continue
+        tool = str(raw_name).rsplit(".", 1)[-1]
+        if tool not in _ALLOWED_TOOLS:
+            continue
+        raw_args = _get_attr_or_key(item, "arguments") or "{}"
+        try:
+            args = json.loads(str(raw_args))
+        except json.JSONDecodeError:
+            args = {}
+        if not isinstance(args, dict):
+            args = {}
+        call_id = _get_attr_or_key(item, "call_id") or _get_attr_or_key(item, "id") or f"call_{tool}"
+        response_item = {
+            "type": "function_call",
+            "call_id": str(call_id),
+            "name": str(raw_name),
+            "arguments": str(raw_args),
+        }
+        item_id = _get_attr_or_key(item, "id")
+        if item_id:
+            response_item["id"] = str(item_id)
+        return {
+            "api": "responses",
+            "action_text": json.dumps({"tool": tool, "args": args}),
+            "tool_call_id": str(call_id),
+            "response_items": [response_item],
+        }
+    return None
+
+
+def _message_native_tool_context(message) -> dict | None:
+    tool_calls = getattr(message, "tool_calls", None) or []
+    for call in tool_calls:
+        function = _get_attr_or_key(call, "function")
+        if function is None:
+            continue
+        raw_name = _get_attr_or_key(function, "name")
+        if not raw_name:
+            continue
+        tool = str(raw_name).rsplit(".", 1)[-1]
+        if tool not in _ALLOWED_TOOLS:
+            continue
+        raw_args = _get_attr_or_key(function, "arguments") or "{}"
+        try:
+            args = json.loads(str(raw_args))
+        except json.JSONDecodeError:
+            args = {}
+        if not isinstance(args, dict):
+            args = {}
+        action_text = json.dumps({"tool": tool, "args": args})
+        call_id = _get_attr_or_key(call, "id") or f"call_{tool}"
+        call_type = _get_attr_or_key(call, "type") or "function"
+        return {
+            "action_text": action_text,
+            "tool_call_id": str(call_id),
+            "assistant_message": {
+                "role": "assistant",
+                "content": _message_content_for_protocol(message),
+                "tool_calls": [
+                    {
+                        "id": str(call_id),
+                        "type": str(call_type),
+                        "function": {
+                            "name": str(raw_name),
+                            "arguments": str(raw_args),
+                        },
+                    }
+                ],
+            },
+        }
+    return None
+
+
+def _message_content_for_protocol(message) -> str | None:
+    content = getattr(message, "content", None)
+    if content is None:
+        return None
+    return str(content)
+
+
+def _get_attr_or_key(value, key: str):
+    if isinstance(value, dict):
+        return value.get(key)
+    return getattr(value, key, None)
 
 
 def _extract_triple_quoted_write_file_action(text: str) -> dict | None:
@@ -302,6 +611,26 @@ def _extract_tool_call_tag_action(text: str) -> dict | None:
     tool = match.group("tool")
     if tool not in _ALLOWED_TOOLS:
         return None
+    return {"tool": tool, "args": args}
+
+
+def _extract_kimi_tool_call_section_action(text: str) -> dict | None:
+    match = re.search(
+        r"<\|tool_call_begin\|>"
+        r"(?:(?:functions|tools?)\.)?(?P<tool>[A-Za-z_]\w*)"
+        r"(?::\d+)?"
+        r"<\|tool_call_argument_begin\|>"
+        r"(?P<body>.*?)"
+        r"<\|tool_call_end\|>",
+        text,
+        re.DOTALL,
+    )
+    if not match:
+        return None
+    tool = match.group("tool")
+    if tool not in _ALLOWED_TOOLS:
+        return None
+    args = _decode_json_object_at(match.group("body").strip(), 0) or {}
     return {"tool": tool, "args": args}
 
 
@@ -443,14 +772,17 @@ def _parse_keyword_args(body: str) -> dict[str, str] | None:
             idx += 1
         if idx >= length:
             break
-        key_match = re.match(r"[A-Za-z_]\w*", body[idx:])
+        key_match = re.match(
+            r"\"(?P<double>[A-Za-z_]\w*)\"|'(?P<single>[A-Za-z_]\w*)'|(?P<bare>[A-Za-z_]\w*)",
+            body[idx:],
+        )
         if not key_match:
             return None
-        key = key_match.group(0)
-        idx += len(key)
+        key = key_match.group("double") or key_match.group("single") or key_match.group("bare")
+        idx += len(key_match.group(0))
         while idx < length and body[idx].isspace():
             idx += 1
-        if idx >= length or body[idx] != "=":
+        if idx >= length or body[idx] not in {"=", ":"}:
             return None
         idx += 1
         while idx < length and body[idx].isspace():
@@ -562,6 +894,8 @@ def _tool_write_file(workspace: Path, rel: str, content: str) -> tuple[bool, str
     target = _safe_target(workspace, rel)
     if target is None:
         return False, f"agent_loop: unsafe path rejected: {rel}", False
+    if _is_protected_harness_path(rel):
+        return False, f"agent_loop: protected path rejected: {rel}", False
     target.parent.mkdir(parents=True, exist_ok=True)
     target.write_text(content, encoding="utf-8")
     return True, f"agent_loop: wrote {rel}", False
@@ -604,17 +938,29 @@ def _finish_result(
     t_start: float,
     completion_tokens: int,
     reasoning_tokens: int,
+    prompt_tokens: int,
+    total_tokens: int,
+    api_cost: float,
     score: float,
     detail: str,
     summary: str,
+    *,
+    termination: str,
 ) -> dict:
     total_ms = (time.perf_counter() - t_start) * 1000
+    progress = _agent_loop_progress(trace, score, termination)
+    trace["progress"] = progress
     trace["events"].append({
         "event": "agent_loop_complete",
         "elapsed_ms": round(total_ms, 1),
         "completion_tokens": completion_tokens,
         "reasoning_tokens": reasoning_tokens,
+        "prompt_tokens": prompt_tokens,
+        "total_tokens": total_tokens,
+        "api_cost": round(api_cost, 8) if api_cost else None,
         "score": score,
+        "termination": termination,
+        "progress_score": progress["score"],
     })
     return _result(
         task,
@@ -625,8 +971,43 @@ def _finish_result(
         total_ms=round(total_ms, 1),
         completion_tokens=completion_tokens,
         reasoning_tokens=reasoning_tokens,
+        prompt_tokens=prompt_tokens,
+        total_tokens=total_tokens,
+        api_cost=round(api_cost, 8) if api_cost else None,
         trace=trace,
+        progress=progress,
     )
+
+
+def _agent_loop_progress(trace: dict, hidden_score: float, termination: str) -> dict:
+    calls = trace.get("tool_calls") or []
+    checks = {
+        "valid_action": bool(calls),
+        "inspected_workspace": any(
+            call.get("ok") is True and call.get("tool") in {"list_files", "read_file"}
+            for call in calls
+        ),
+        "wrote_file": any(
+            call.get("ok") is True and call.get("tool") == "write_file"
+            for call in calls
+        ),
+        "ran_visible_tests": any(call.get("tool") == "run_tests" for call in calls),
+        "visible_tests_passed": any(
+            call.get("ok") is True and call.get("tool") == "run_tests"
+            for call in calls
+        ),
+        "final_called": any(call.get("tool") == "final" for call in calls),
+        "hidden_tests_passed": hidden_score >= 1.0,
+    }
+    passed = sum(1 for ok in checks.values() if ok)
+    total = len(checks)
+    return {
+        "score": passed / total if total else 0.0,
+        "passed": passed,
+        "total": total,
+        "termination": termination,
+        "checks": checks,
+    }
 
 
 def _result(
@@ -636,10 +1017,15 @@ def _result(
     detail: str,
     response: str = "",
     total_ms: float | None = None,
+    prompt_tokens: int = 0,
     completion_tokens: int = 0,
     reasoning_tokens: int = 0,
+    total_tokens: int = 0,
+    api_cost: float | None = None,
     trace: dict | None = None,
+    progress: dict | None = None,
 ) -> dict:
+    progress = progress or (trace or {}).get("progress") or {}
     return {
         "task_id": task["id"],
         "response": response,
@@ -647,11 +1033,18 @@ def _result(
         "ttft_ms": None,
         "total_ms": total_ms,
         "tps": round(completion_tokens / (total_ms / 1000), 1) if completion_tokens and total_ms else None,
+        "prompt_tokens": prompt_tokens,
         "completion_tokens": completion_tokens,
         "reasoning_tokens": reasoning_tokens,
+        "total_tokens": total_tokens,
+        "api_cost": api_cost,
         "backend": backend_name,
         "agent_loop_score": score,
         "agent_loop_detail": detail,
+        "agent_loop_progress_score": progress.get("score"),
+        "agent_loop_progress_passed": progress.get("passed"),
+        "agent_loop_progress_total": progress.get("total"),
+        "agent_loop_termination": progress.get("termination"),
         "execution_trace": trace or {
             "surface": task.get("execution_surface", "observed_agent_loop"),
             "scoring_type": "agent_loop",

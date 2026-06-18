@@ -75,6 +75,12 @@ backends:
     auto_discover: true         # Queries /v1/models
     # For OpenAI's API, use base_url: "https://api.openai.com/v1"
     # and set LLM_BENCH_GENERIC_OPENAI_API_KEY or OPENAI_API_KEY.
+    # For OpenRouter, use base_url: "https://openrouter.ai/api/v1"
+    # and set LLM_BENCH_GENERIC_OPENAI_API_KEY or OPENROUTER_API_KEY.
+    # OpenRouter Chat Completions options can be passed with extra_body:
+    # extra_body:
+    #   reasoning:
+    #     max_tokens: 512
     # For GPT-5.5-style reasoning/model-agent evals, set:
     # api: "responses"
     # reasoning_effort: "medium" # low|medium|high|xhigh, model-dependent
@@ -101,6 +107,8 @@ benchmark:
   timeout: 180           # Seconds before a single request is abandoned
   runs_per_task: 3       # Each task is run N times; score = mean ± std (statistical reliability)
   resume: false          # Set true (or use --resume) to skip already-completed (model, task) pairs
+  max_api_cost: null      # Optional USD cap for provider-reported api_cost on newly executed hosted tasks
+  agent_loop_native_tools: false  # Opt into Chat Completions function schemas for agent_loop tasks
   hf_auto_config: false   # Opt-in: fetch generation_config.json/config.json from Hugging Face for model IDs containing "/"
 
 # LLM-as-judge (for tasks with scoring.type: llm_judge)

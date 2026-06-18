@@ -60,15 +60,96 @@ def test_resume_key_survives_jsonl_round_trip(tmp_path, updates):
     assert record_cache_key(record) == cache_key("model-a", task)
 
 
+def test_run_fingerprint_changes_when_benchmark_settings_change():
+    base = session.run_fingerprint(
+        model_info=DummyModel(),
+        backend=DummyBackend(),
+        bench_config={"temperature": 0.0, "max_tokens": 512},
+        allow_code_exec=True,
+        judge_model=None,
+    )
+    changed = session.run_fingerprint(
+        model_info=DummyModel(),
+        backend=DummyBackend(),
+        bench_config={"temperature": 0.7, "max_tokens": 512},
+        allow_code_exec=True,
+        judge_model=None,
+    )
+
+    assert base != changed
+
+
+def test_run_model_ignores_cached_record_with_mismatched_run_fingerprint(monkeypatch, tmp_path):
+    task = _task()
+    stale_key = cache_key("model-a", task, run_fingerprint="old-fingerprint")
+    record = {
+        "model_id": "model-a",
+        "backend": "dummy",
+        "task_id": task["id"],
+        "task_version": task.get("_version"),
+        "task_hash": stale_key[3],
+        "run_fingerprint": "old-fingerprint",
+        "category": task["category"],
+        "score": 1.0,
+        "score_detail": "stale cached pass",
+        "response_preview": "A",
+    }
+    calls = []
+
+    class FakeRunner:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def run_task(self, task):
+            calls.append(task["id"])
+            return {
+                "task_id": task["id"],
+                "response": "A",
+                "error": None,
+                "ttft_ms": None,
+                "total_ms": 1.0,
+                "tps": None,
+                "completion_tokens": 1,
+                "reasoning_tokens": 0,
+                "backend": "dummy",
+            }
+
+    monkeypatch.setattr(session, "ModelRunner", FakeRunner)
+
+    results = session.run_model(
+        model_info=DummyModel(),
+        backend=DummyBackend(),
+        tasks=[task],
+        bench_config={"temperature": 0.0},
+        cached_records={stale_key: record},
+        jsonl_path=tmp_path / "results.jsonl",
+        allow_code_exec=False,
+        no_autoload=True,
+        judge_client=None,
+        judge_model=None,
+    )
+
+    assert calls == ["task_a"]
+    assert results[0]["score_detail"] != "stale cached pass"
+
+
 def test_run_model_hydrates_fully_cached_results_without_runner(monkeypatch, tmp_path):
     task = _task()
-    key = cache_key("model-a", task)
+    fingerprint = session.run_fingerprint(
+        model_info=DummyModel(),
+        backend=DummyBackend(),
+        bench_config={},
+        allow_code_exec=False,
+        judge_model=None,
+    )
+    key = cache_key("model-a", task, run_fingerprint=fingerprint)
     record = {
         "model_id": "model-a",
         "backend": "dummy",
         "task_id": task["id"],
         "task_version": task.get("_version"),
         "task_hash": key[3],
+        "run_fingerprint": fingerprint,
         "category": task["category"],
         "score": 1.0,
         "score_detail": "cached pass",
@@ -182,3 +263,67 @@ def test_pass_at_k_uses_samples_count_when_larger_than_k(monkeypatch, tmp_path):
 
     assert calls == [5]
     assert results[0]["score_detail"].startswith("pass@2: 1/5")
+
+
+def test_api_cost_budget_accumulates_only_reported_costs():
+    budget = session.ApiCostBudget(limit=0.003)
+
+    budget.add_result({"api_cost": 0.001})
+    budget.add_result({"api_cost": None})
+    budget.add_result({"api_cost": 0.002})
+
+    assert budget.spent == pytest.approx(0.003)
+    assert budget.exhausted
+
+
+def test_resolve_api_cost_budget_prefers_cli_override():
+    budget = session.resolve_api_cost_budget({"max_api_cost": 3.5}, cli_limit=1.25)
+
+    assert budget is not None
+    assert budget.limit == pytest.approx(1.25)
+
+
+def test_run_model_stops_before_next_uncached_task_when_api_cost_budget_is_exhausted(monkeypatch, tmp_path):
+    calls = []
+
+    class FakeRunner:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def run_task(self, task):
+            calls.append(task["id"])
+            return {
+                "task_id": task["id"],
+                "response": "A",
+                "error": None,
+                "ttft_ms": None,
+                "total_ms": 1.0,
+                "tps": None,
+                "completion_tokens": 1,
+                "reasoning_tokens": 0,
+                "api_cost": 0.0025,
+                "backend": "dummy",
+            }
+
+    monkeypatch.setattr(session, "ModelRunner", FakeRunner)
+    budget = session.ApiCostBudget(limit=0.002)
+    tasks = [_task(id="task_a"), _task(id="task_b")]
+
+    results = session.run_model(
+        model_info=DummyModel(),
+        backend=DummyBackend(),
+        tasks=tasks,
+        bench_config={},
+        cached_records={},
+        jsonl_path=tmp_path / "results.jsonl",
+        allow_code_exec=False,
+        no_autoload=True,
+        judge_client=None,
+        judge_model=None,
+        api_cost_budget=budget,
+    )
+
+    assert calls == ["task_a"]
+    assert [r["task"]["id"] for r in results] == ["task_a"]
+    assert budget.spent == pytest.approx(0.0025)
+    assert budget.exhausted

@@ -44,10 +44,16 @@ class FakeClient:
 
 
 class FakeResponsesClient:
-    def __init__(self, output_text="done", output_tokens=5, reasoning_tokens=2):
+    def __init__(self, output_text="done", output_tokens=5, reasoning_tokens=2, prompt_tokens=3, total_tokens=8, cost=0.0):
         self.kwargs = None
         details = SimpleNamespace(reasoning_tokens=reasoning_tokens)
-        usage = SimpleNamespace(output_tokens=output_tokens, output_tokens_details=details)
+        usage = SimpleNamespace(
+            input_tokens=prompt_tokens,
+            output_tokens=output_tokens,
+            total_tokens=total_tokens,
+            output_tokens_details=details,
+            cost=cost,
+        )
         self._response = SimpleNamespace(
             output_text=output_text,
             output=[SimpleNamespace(type="reasoning", summary=[SimpleNamespace(text="checked")])],
@@ -59,6 +65,20 @@ class FakeResponsesClient:
     def _create(self, **kwargs):
         self.kwargs = kwargs
         return self._response
+
+
+class FakeAgentLoopClient:
+    def __init__(self, responses):
+        self._responses = list(responses)
+        self.kwargs = None
+        self.chat = SimpleNamespace(completions=SimpleNamespace(create=self._create))
+
+    def _create(self, **kwargs):
+        self.kwargs = kwargs
+        text = self._responses.pop(0)
+        message = SimpleNamespace(content=text)
+        usage = SimpleNamespace(completion_tokens=len(text.split()))
+        return SimpleNamespace(choices=[SimpleNamespace(message=message)], usage=usage)
 
 
 class FailingClient:
@@ -81,15 +101,18 @@ def content_chunk(text=None, reasoning=None, thinking=None):
     return SimpleNamespace(choices=[SimpleNamespace(delta=delta)], usage=None)
 
 
-def usage_chunk(completion_tokens, reasoning_tokens=None):
+def usage_chunk(completion_tokens, reasoning_tokens=None, prompt_tokens=None, total_tokens=None, cost=None):
     details = (
         SimpleNamespace(reasoning_tokens=reasoning_tokens)
         if reasoning_tokens is not None
         else None
     )
     usage = SimpleNamespace(
+        prompt_tokens=prompt_tokens,
         completion_tokens=completion_tokens,
+        total_tokens=total_tokens,
         completion_tokens_details=details,
+        cost=cost,
     )
     return SimpleNamespace(choices=[], usage=usage)
 
@@ -137,6 +160,25 @@ def test_reasoning_content_captured_separately_from_response():
     assert result["reasoning_tokens"] == 3
 
 
+def test_chat_usage_metadata_is_recorded():
+    result, _ = run_once([
+        content_chunk("ok"),
+        usage_chunk(
+            completion_tokens=5,
+            reasoning_tokens=2,
+            prompt_tokens=11,
+            total_tokens=16,
+            cost=0.00042,
+        ),
+    ])
+
+    assert result["completion_tokens"] == 5
+    assert result["reasoning_tokens"] == 2
+    assert result["prompt_tokens"] == 11
+    assert result["total_tokens"] == 16
+    assert result["api_cost"] == 0.00042
+
+
 def test_ollama_thinking_field_captured_as_reasoning():
     result, _ = run_once([
         content_chunk(thinking="hmm"),
@@ -180,6 +222,31 @@ def test_backend_extra_body_reaches_request_kwargs():
     assert "think" not in client.kwargs  # never a top-level kwarg
 
 
+def test_agent_loop_chat_path_uses_backend_extra_body(tmp_path):
+    fixture = tmp_path / "fixture"
+    tests = fixture / "tests"
+    tests.mkdir(parents=True)
+    (tests / "test_visible.py").write_text(
+        "def test_visible():\n"
+        "    assert True\n",
+        encoding="utf-8",
+    )
+    task = _task(scoring={
+        "type": "agent_loop",
+        "repo_fixture": str(fixture),
+        "test_command": ["{python}", "-m", "pytest", "-q"],
+        "max_steps": 1,
+    })
+    backend = FakeBackend(extra_params={"extra_body": {"reasoning": {"max_tokens": 512}}})
+    client = FakeAgentLoopClient(['{"tool": "final", "args": {"summary": "done"}}'])
+    runner = ModelRunner(backend, "openrouter/model", {"timeout": 30}, client=client)
+
+    result = runner._run_once(task)
+
+    assert result["error"] is None
+    assert client.kwargs["extra_body"] == {"reasoning": {"max_tokens": 512}}
+
+
 def test_api_error_returns_error_result_not_exception():
     result, _ = run_once(FailingClient(RuntimeError("connection refused")))
     assert result["error"] == "connection refused"
@@ -197,7 +264,14 @@ def test_responses_api_runner_path_uses_backend_params_and_usage():
             "max_output_tokens": 12000,
         },
     )
-    client = FakeResponsesClient(output_text="Answer: x", output_tokens=9, reasoning_tokens=4)
+    client = FakeResponsesClient(
+        output_text="Answer: x",
+        output_tokens=9,
+        reasoning_tokens=4,
+        prompt_tokens=7,
+        total_tokens=16,
+        cost=0.0012,
+    )
     runner = ModelRunner(backend, "gpt-5.5", {"timeout": 30}, client=client)
 
     result = runner._run_once(_task(system="system text"))
@@ -206,6 +280,9 @@ def test_responses_api_runner_path_uses_backend_params_and_usage():
     assert result["response"] == "Answer: x"
     assert result["completion_tokens"] == 9
     assert result["reasoning_tokens"] == 4
+    assert result["prompt_tokens"] == 7
+    assert result["total_tokens"] == 16
+    assert result["api_cost"] == 0.0012
     assert result["reasoning_preview"] == "checked"
     assert client.kwargs["model"] == "gpt-5.5"
     assert client.kwargs["reasoning"] == {"effort": "high"}

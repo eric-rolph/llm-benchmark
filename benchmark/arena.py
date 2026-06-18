@@ -26,6 +26,7 @@ from rich.table import Table
 from rich import box
 
 from benchmark.console import make_console
+from benchmark.responses_api import usage_metadata
 from benchmark.runner import ModelRunner
 from benchmark.utils import strip_thinking
 
@@ -97,10 +98,11 @@ def _judge_pair(
     response_b: str,
     judge_client,
     judge_model: str | None,
-) -> tuple[str, str]:
+) -> tuple[str, str, float | None]:
     """
     Ask the judge to compare two responses.
-    Returns (result, judge_reasoning) where result is 'A', 'B', or 'TIE'.
+    Returns (result, judge_reasoning, api_cost) where result is 'A', 'B', or
+    'TIE' and api_cost is provider-reported spend when available.
     The display order is randomised, and the mapping is reversed in the result
     so position bias does not systematically favour one model.
     """
@@ -131,8 +133,9 @@ def _judge_pair(
             timeout=90,
         )
         judge_text = resp.choices[0].message.content or ""
+        judge_api_cost = usage_metadata(getattr(resp, "usage", None))["api_cost"]
     except Exception as exc:
-        return "TIE", f"Judge error: {exc}"
+        return "TIE", f"Judge error: {exc}", None
 
     # Parse WINNER from last line
     lines = [ln.strip() for ln in judge_text.strip().split("\n") if ln.strip()]
@@ -147,7 +150,16 @@ def _judge_pair(
             result = raw
             break
 
-    return result, judge_text
+    return result, judge_text, judge_api_cost
+
+
+def _unpack_judge_result(value) -> tuple[str, str, float | None]:
+    result = tuple(value)
+    if len(result) == 2:
+        winner, reasoning = result
+        return winner, reasoning, None
+    winner, reasoning, api_cost = result[:3]
+    return winner, reasoning, api_cost
 
 
 # ── Arena runner ─────────────────────────────────────────────────────────────
@@ -159,6 +171,7 @@ def run_arena(
     judge_client,
     judge_model: str | None,
     no_autoload: bool = False,
+    api_cost_budget=None,
 ) -> dict[str, ArenaPlayer]:
     """
     Run a round-robin arena: every pair of models competes on every task.
@@ -185,6 +198,13 @@ def run_arena(
     console.print(f"\n[bold]Arena Mode[/bold]  [dim]{len(model_ids)} models × {len(tasks)} tasks = {total_matchups} matchups[/dim]\n")
 
     for task in tasks:
+        if api_cost_budget and api_cost_budget.exhausted:
+            console.print(
+                f"[yellow]Arena stopped before {task['id']} because API cost budget is exhausted "
+                f"(${api_cost_budget.spent:.4f} / ${api_cost_budget.limit:.4f}).[/yellow]"
+            )
+            break
+
         # Pre-generate all responses for this task
         responses: dict[str, str] = {}
         for mid in model_ids:
@@ -192,19 +212,35 @@ def run_arena(
             if auto_load[mid]:
                 runners[mid].ensure_model_loaded()
             raw = runners[mid].run_task(task)
+            if api_cost_budget:
+                api_cost_budget.add_result(raw)
             responses[mid] = strip_thinking(raw.get("response", ""))
 
+            if api_cost_budget and api_cost_budget.exhausted and len(responses) < len(model_ids):
+                console.print(
+                    f"[yellow]Arena stopped during {task['id']} because API cost budget is exhausted "
+                    f"(${api_cost_budget.spent:.4f} / ${api_cost_budget.limit:.4f}).[/yellow]"
+                )
+                break
+
+        if len(responses) < len(model_ids):
+            break
+
         # Round-robin pairwise comparison
+        stop_for_budget = False
         for i in range(len(model_ids)):
             for j in range(i + 1, len(model_ids)):
                 mid_a, mid_b = model_ids[i], model_ids[j]
-                result, reasoning = _judge_pair(
+                result, reasoning, judge_api_cost = _unpack_judge_result(_judge_pair(
                     prompt=task["prompt"],
                     response_a=responses[mid_a],
                     response_b=responses[mid_b],
                     judge_client=judge_client,
                     judge_model=judge_model,
-                )
+                ))
+                if api_cost_budget:
+                    api_cost_budget.add_result({"api_cost": judge_api_cost})
+                    stop_for_budget = api_cost_budget.exhausted
                 _update_elo(players[mid_a], players[mid_b], result)
 
                 completed += 1
@@ -216,6 +252,8 @@ def run_arena(
                     "opponent": mid_b,
                     "result": result,
                 }
+                if judge_api_cost is not None:
+                    match_record["judge_api_cost"] = judge_api_cost
                 players[mid_a].history.append(match_record)
                 players[mid_b].history.append({**match_record, "opponent": mid_a,
                                                 "result": {"A": "B", "B": "A"}.get(result, result)})
@@ -227,6 +265,17 @@ def run_arena(
                     f"→ [bold]{winner_label[:30]}[/bold]  "
                     f"[dim]({completed}/{total_matchups})[/dim]"
                 )
+                if stop_for_budget:
+                    break
+            if stop_for_budget:
+                break
+
+        if api_cost_budget and api_cost_budget.exhausted:
+            console.print(
+                f"[yellow]Arena stopped after {task['id']} because API cost budget is exhausted "
+                f"(${api_cost_budget.spent:.4f} / ${api_cost_budget.limit:.4f}).[/yellow]"
+            )
+            break
 
     return players
 
