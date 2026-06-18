@@ -46,8 +46,23 @@ def _sum_or_none(values: list) -> float | None:
     return sum(present) if present else None
 
 
-def _composite_score(results: list, core_only: bool = True) -> float | None:
+def _coverage_counts(results: list, expected_tasks: list[dict] | None = None) -> tuple[int, int]:
+    completed_ids = {r["task"]["id"] for r in results}
+    if expected_tasks is None:
+        return len(completed_ids), len(completed_ids)
+    expected_ids = {task["id"] for task in expected_tasks}
+    return len(completed_ids & expected_ids), len(expected_ids)
+
+
+def _composite_score(
+    results: list,
+    core_only: bool = True,
+    expected_tasks: list[dict] | None = None,
+) -> float | None:
     """Weighted composite score across categories (harder categories carry more weight)."""
+    completed, expected = _coverage_counts(results, expected_tasks)
+    if expected_tasks is not None and completed < expected:
+        return None
     if core_only:
         results = leaderboard_results(results)
     if not results:
@@ -97,12 +112,15 @@ def print_task_result(result: dict):
 
 # ── summary tables ────────────────────────────────────────────────────────────
 
-def print_report(all_results: dict):
+def print_report(all_results: dict, expected_tasks: list[dict] | None = None):
     console.print("\n")
     console.rule("[bold white]BENCHMARK SUMMARY[/bold white]")
 
     models = list(all_results.keys())
-    categories = sorted({r["task"]["category"] for rs in all_results.values() for r in rs})
+    categories = sorted(
+        {r["task"]["category"] for rs in all_results.values() for r in rs}
+        | {t["category"] for t in (expected_tasks or [])}
+    )
 
     # Accuracy table
     acc = Table(box=box.ROUNDED, title="Accuracy by Category", show_lines=True)
@@ -135,6 +153,17 @@ def print_report(all_results: dict):
         total_row.append(f"[bold]{passed}/{len(rs)}  ({pct:.0f}%)[/bold]")
     acc.add_row(*total_row)
 
+    coverage_row = ["[dim]Coverage[/dim]"]
+    for m in models:
+        completed, expected = _coverage_counts(all_results[m], expected_tasks)
+        if expected and completed < expected:
+            coverage_row.append(f"[yellow]{completed}/{expected} tasks[/yellow]")
+        elif expected:
+            coverage_row.append(f"[dim]{completed}/{expected} tasks[/dim]")
+        else:
+            coverage_row.append("[dim]—[/dim]")
+    acc.add_row(*coverage_row)
+
     # Headline score row: exclude smoke/diagnostic tasks and high-contamination tasks.
     clean_row = ["[dim]Leaderboard core[/dim]"]
     for m in models:
@@ -149,8 +178,14 @@ def print_report(all_results: dict):
 
     comp_row = ["[bold]Composite ★[/bold]"]
     for m in models:
-        c = _composite_score(all_results[m])
-        comp_row.append(f"[bold]{c * 100:.1f}%[/bold]" if c is not None else "—")
+        c = _composite_score(all_results[m], expected_tasks=expected_tasks)
+        completed, expected = _coverage_counts(all_results[m], expected_tasks)
+        if c is not None:
+            comp_row.append(f"[bold]{c * 100:.1f}%[/bold]")
+        elif expected and completed < expected:
+            comp_row.append(f"[yellow]incomplete {completed}/{expected}[/yellow]")
+        else:
+            comp_row.append("—")
     acc.add_row(*comp_row)
     console.print(acc)
 

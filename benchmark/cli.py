@@ -364,7 +364,7 @@ def main():
                 f"(${api_cost_budget.spent:.4f} / ${api_cost_budget.limit:.4f}).[/yellow]\n"
             )
 
-    print_report(all_results)
+    print_report(all_results, expected_tasks=tasks)
     if args.ab_thinking:
         print_ab_thinking_summary(all_results)
     save_results(all_results, args.output)

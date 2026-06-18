@@ -56,6 +56,7 @@ run cost reaches the cap.
 | **pass@k coding** | `scoring.type: pass_at_k` can run n samples and estimate pass@k with the unbiased Chen et al. (2021) estimator |
 | **LLM-as-judge** | CoT-then-score protocol — enable with `judge.enabled: true` in config |
 | **Run resumption** | `--resume` continues from an interrupted run, skipping rows that match model, task version/content, and run fingerprint |
+| **Partial-run coverage** | Reports completed/intended task coverage and suppresses composite scores for incomplete benchmark matrices |
 | **Result comparison** | `--compare` diffs saved JSON/JSONL runs, including model-level and task-level score movement |
 | **Arena artifacts** | `--arena` runs pairwise ELO judging and persists leaderboard + match history JSON |
 | **Task versioning** | `metadata.version` in task YAML propagates to JSONL for audit trails |

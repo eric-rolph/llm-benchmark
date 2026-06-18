@@ -5,7 +5,7 @@ Run with:  pytest tests/test_reporter.py -v
 """
 import pytest
 from benchmark.evaluation import CATEGORY_WEIGHTS
-from benchmark.reporter import _composite_score
+from benchmark.reporter import _composite_score, _coverage_counts
 
 
 def make_result(category: str, score: float, **task_extra) -> dict:
@@ -75,3 +75,21 @@ class TestCompositeScore:
 
         assert _composite_score(results) == pytest.approx(1.0)
         assert _composite_score(results, core_only=False) == pytest.approx(0.25)
+
+    def test_coverage_counts_expected_task_matrix(self):
+        expected = [
+            {"id": "task_a", "category": "coding"},
+            {"id": "task_b", "category": "coding"},
+        ]
+        results = [make_result("coding", 1.0, id="task_a")]
+
+        assert _coverage_counts(results, expected) == (1, 2)
+
+    def test_composite_is_suppressed_for_incomplete_expected_task_matrix(self):
+        expected = [
+            {"id": "task_a", "category": "coding"},
+            {"id": "task_b", "category": "coding"},
+        ]
+        results = [make_result("coding", 1.0, id="task_a")]
+
+        assert _composite_score(results, expected_tasks=expected) is None

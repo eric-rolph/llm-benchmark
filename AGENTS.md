@@ -73,6 +73,9 @@ Recent signal from hard `agent_loop` probes:
 - Resume cache keys include a secret-redacted run fingerprint built from model,
   backend/config, benchmark generation settings, code-exec mode, and judge
   model. Changing incompatible run settings should miss cached JSONL rows.
+- Reports should show completed/intended task coverage. Composite scores should
+  be suppressed for incomplete matrices so budget-stopped runs are not ranked
+  as if they were complete.
 - `benchmark.max_api_cost` / `--max-api-cost` caps newly executed hosted work
   using accumulated provider-reported `api_cost`; cached resume rows do not
   consume the current run budget.
