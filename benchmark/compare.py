@@ -57,9 +57,19 @@ def load_result_records(path: str | Path) -> list[dict]:
     return records
 
 
-def _by_model_task(records: list[dict]) -> dict[tuple[str, str], dict]:
+def _comparison_key(record: dict) -> tuple:
+    version = record.get("task_version")
+    task_hash = record.get("task_hash")
+    if version is None and not task_hash:
+        identity = ("legacy",)
+    else:
+        identity = ("versioned", str(version), str(task_hash or ""))
+    return (record["model_id"], record["task_id"], *identity)
+
+
+def _by_model_task(records: list[dict]) -> dict[tuple, dict]:
     return {
-        (record["model_id"], record["task_id"]): record
+        _comparison_key(record): record
         for record in records
     }
 

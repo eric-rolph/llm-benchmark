@@ -55,6 +55,28 @@ def test_compare_records_counts_unmatched_model_task_pairs():
     assert summary["candidate_only_count"] == 1
 
 
+def test_compare_records_does_not_share_changed_task_hashes():
+    summary = compare_records(
+        [_record("model-a", "task_1", "math", 0.0, task_version=1, task_hash="old")],
+        [_record("model-a", "task_1", "math", 1.0, task_version=1, task_hash="new")],
+    )
+
+    assert summary["shared_count"] == 0
+    assert summary["baseline_only_count"] == 1
+    assert summary["candidate_only_count"] == 1
+    assert summary["task_deltas"] == []
+
+
+def test_compare_records_preserves_legacy_matching_without_hash_metadata():
+    summary = compare_records(
+        [_record("model-a", "task_1", "math", 0.0)],
+        [_record("model-a", "task_1", "math", 1.0)],
+    )
+
+    assert summary["shared_count"] == 1
+    assert summary["task_deltas"][0]["delta"] == pytest.approx(1.0)
+
+
 def test_compare_composite_excludes_smoke_and_high_contamination_records():
     baseline = [
         _record("model-a", "core", "coding", 0.0),

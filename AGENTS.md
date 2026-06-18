@@ -82,6 +82,9 @@ Recent signal from hard `agent_loop` probes:
 - Reports should show completed/intended task coverage. Composite scores should
   be suppressed for incomplete matrices so budget-stopped runs are not ranked
   as if they were complete.
+- `--compare` only treats rows as shared when model, task id, and any recorded
+  task version/hash metadata match; changed task definitions should be
+  unmatched, not scored as regressions/improvements.
 - `benchmark.max_api_cost` / `--max-api-cost` caps newly executed hosted work
   using accumulated provider-reported `api_cost`; cached resume rows do not
   consume the current run budget.

@@ -328,7 +328,12 @@ Compare two completed or in-progress runs without starting a backend:
 llm-bench --compare results/results_20250118_143022.jsonl results/results_20250119_091500.jsonl
 ```
 
-`--compare` accepts the structured JSON files and the incremental JSONL files. It reports per-model score movement, composite-score movement, unmatched task counts, and the largest task-level deltas. Use `--compare-top N` to change how many task changes are shown.
+`--compare` accepts the structured JSON files and the incremental JSONL files.
+It reports per-model score movement, composite-score movement, unmatched task
+counts, and the largest task-level deltas. Rows are shared only when model,
+task id, and any recorded task version/hash metadata match; changed task
+definitions are counted as unmatched instead of false deltas. Use
+`--compare-top N` to change how many task changes are shown.
 
 ---
 
