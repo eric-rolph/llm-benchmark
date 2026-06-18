@@ -178,7 +178,7 @@ def run_agent_loop(
 
         for step in range(1, max_steps + 1):
             try:
-                content, usage_meta = _call_model(
+                content, usage_meta, native_tool_context = _call_model(
                     client,
                     model_id,
                     messages,
@@ -235,8 +235,16 @@ def run_agent_loop(
                     score, final_detail, final_summary,
                 )
 
-            messages.append({"role": "assistant", "content": content})
-            messages.append({"role": "user", "content": f"OBSERVATION:\n{observation}\n\nReturn the next JSON action."})
+            if native_tool_context is not None:
+                messages.append(native_tool_context["assistant_message"])
+                messages.append({
+                    "role": "tool",
+                    "tool_call_id": native_tool_context["tool_call_id"],
+                    "content": observation,
+                })
+            else:
+                messages.append({"role": "assistant", "content": content})
+                messages.append({"role": "user", "content": f"OBSERVATION:\n{observation}\n\nReturn the next JSON action."})
 
             if should_stop:
                 return _finish_result(
@@ -288,7 +296,7 @@ def _call_model(
     use_responses_api: bool = False,
     responses_params: dict | None = None,
     chat_params: dict | None = None,
-) -> tuple[str, dict]:
+) -> tuple[str, dict, dict | None]:
     if use_responses_api:
         response = client.responses.create(
             model=model_id,
@@ -296,7 +304,7 @@ def _call_model(
             timeout=bench_config.get("timeout", 180),
             **(responses_params or {}),
         )
-        return response_output_text(response), response_usage_metadata(response)
+        return response_output_text(response), response_usage_metadata(response), None
 
     response = client.chat.completions.create(
         **_chat_completion_kwargs(
@@ -309,15 +317,16 @@ def _call_model(
         )
     )
     message = response.choices[0].message
+    native_tool_context = _message_native_tool_context(message)
     content = _first_nonblank(
         message.content,
-        _message_tool_call_action_text(message),
+        native_tool_context["action_text"] if native_tool_context else None,
         getattr(message, "reasoning_content", None),
         getattr(message, "thinking", None),
         getattr(message, "reasoning", None),
     )
     usage = getattr(response, "usage", None)
-    return content, usage_metadata(usage)
+    return content, usage_metadata(usage), native_tool_context
 
 
 def _chat_completion_kwargs(
@@ -406,9 +415,14 @@ def _extract_action(text: str) -> dict | None:
 
 
 def _message_tool_call_action_text(message) -> str | None:
+    context = _message_native_tool_context(message)
+    return context["action_text"] if context else None
+
+
+def _message_native_tool_context(message) -> dict | None:
     tool_calls = getattr(message, "tool_calls", None) or []
     for call in tool_calls:
-        function = getattr(call, "function", None)
+        function = _get_attr_or_key(call, "function")
         if function is None:
             continue
         raw_name = _get_attr_or_key(function, "name")
@@ -424,8 +438,35 @@ def _message_tool_call_action_text(message) -> str | None:
             args = {}
         if not isinstance(args, dict):
             args = {}
-        return json.dumps({"tool": tool, "args": args})
+        action_text = json.dumps({"tool": tool, "args": args})
+        call_id = _get_attr_or_key(call, "id") or f"call_{tool}"
+        call_type = _get_attr_or_key(call, "type") or "function"
+        return {
+            "action_text": action_text,
+            "tool_call_id": str(call_id),
+            "assistant_message": {
+                "role": "assistant",
+                "content": _message_content_for_protocol(message),
+                "tool_calls": [
+                    {
+                        "id": str(call_id),
+                        "type": str(call_type),
+                        "function": {
+                            "name": str(raw_name),
+                            "arguments": str(raw_args),
+                        },
+                    }
+                ],
+            },
+        }
     return None
+
+
+def _message_content_for_protocol(message) -> str | None:
+    content = getattr(message, "content", None)
+    if content is None:
+        return None
+    return str(content)
 
 
 def _get_attr_or_key(value, key: str):
