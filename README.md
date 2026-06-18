@@ -35,7 +35,7 @@ run cost reaches the cap.
 | **Scoring** | 21 scoring modes, including exact/numeric/regex/JSON checks, code execution, repo-patch execution, observed agent loops, workflow traces, pass@k, logprob choice, LLM judge, and rubric judge |
 | **Reproducibility** | Task version/hash tracking, run fingerprints for resume compatibility, release/signal metadata, opt-in Hugging Face auto-config, dataset dry-run safety, resumable JSONL logs |
 | **Outputs** | Rich console tables, JSON, CSV, crash-safe JSONL, optional HTML reports, result comparisons, arena ELO JSON |
-| **Hosted cost tracking** | Persists provider-reported prompt/output/reasoning/total tokens and `api_cost` when available; `max_api_cost` / `--max-api-cost` stops before the next uncached task once the cap is reached |
+| **Hosted cost tracking** | Persists provider-reported prompt/output/reasoning/total tokens and `api_cost` when available; `max_api_cost` / `--max-api-cost` stops before the next uncached task or arena matchup once the cap is reached |
 
 ---
 
@@ -58,7 +58,7 @@ run cost reaches the cap.
 | **Run resumption** | `--resume` continues from an interrupted run, skipping rows that match model, task version/content, and run fingerprint |
 | **Partial-run coverage** | Reports completed/intended task coverage and suppresses composite scores for incomplete benchmark matrices |
 | **Result comparison** | `--compare` diffs saved JSON/JSONL runs, including model-level and task-level score movement |
-| **Arena artifacts** | `--arena` runs pairwise ELO judging and persists leaderboard + match history JSON |
+| **Arena artifacts** | `--arena` runs pairwise ELO judging and persists leaderboard + match history JSON, including provider-reported judge cost when available |
 | **Task versioning** | `metadata.version` in task YAML propagates to JSONL for audit trails |
 | **Execution surfaces** | Optional `execution_surface` and `source_signal` tags produce Claw-style surface breakdowns in reports |
 | **Composite score** | Weighted cross-category score in summary table (agent-loop, repo-patch, coding, and reasoning weighted higher) |

@@ -85,6 +85,8 @@ Recent signal from hard `agent_loop` probes:
 - `benchmark.max_api_cost` / `--max-api-cost` caps newly executed hosted work
   using accumulated provider-reported `api_cost`; cached resume rows do not
   consume the current run budget.
+- Arena mode counts provider-reported judge `api_cost` toward the same budget
+  and stores `judge_api_cost` in match history when available.
 - For OpenRouter Chat Completions provider options, use backend or task-level
   `extra_body`, for example:
 
