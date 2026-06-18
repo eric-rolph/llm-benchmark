@@ -23,6 +23,7 @@ def to_record(result: dict) -> dict:
         "model_id":  result.get("model_id", "?"),
         "model":     result.get("model_id", "?"),  # legacy readers
         "backend":   result.get("backend", "?"),
+        "run_fingerprint": result.get("run_fingerprint"),
         "task_id":   task["id"],
         "task_version": task.get("_version"),
         "task_hash": task_fingerprint(task),
@@ -84,6 +85,7 @@ def from_record(task: dict, record: dict) -> dict:
         "peak_vram_mb": record.get("peak_vram_mb"),
         "avg_gpu_util": record.get("avg_gpu_util"),
         "backend": record.get("backend", "?"),
+        "run_fingerprint": record.get("run_fingerprint"),
         "model_id": record.get("model_id", record.get("model", "?")),
         "logprob_detail": record.get("logprob_detail"),
         "hf_generation_config": record.get("hf_generation_config"),
@@ -94,17 +96,18 @@ def from_record(task: dict, record: dict) -> dict:
     return result
 
 
-def cache_key(model_id: str, task: dict) -> tuple[str, str, str, str]:
+def cache_key(model_id: str, task: dict, run_fingerprint: str | None = None) -> tuple[str, str, str, str, str]:
     """Key cached results by model, task id, declared version, and task content."""
     return (
         model_id,
         task["id"],
         str(task.get("_version") or ""),
         task_fingerprint(task),
+        run_fingerprint or "",
     )
 
 
-def record_cache_key(record: dict) -> tuple[str, str, str, str]:
+def record_cache_key(record: dict) -> tuple[str, str, str, str, str]:
     """Build the resume key for a persisted record."""
     # JSON round-trips a missing version as an explicit null — normalize to ""
     # so it matches cache_key for versionless tasks.
@@ -113,4 +116,5 @@ def record_cache_key(record: dict) -> tuple[str, str, str, str]:
         record.get("task_id", ""),
         str(record.get("task_version") or ""),
         record.get("task_hash", ""),
+        record.get("run_fingerprint") or "",
     )

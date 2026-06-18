@@ -8,6 +8,7 @@ pieces are importable and testable without argparse.
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import statistics
@@ -30,6 +31,10 @@ from benchmark.runner import ModelRunner
 from benchmark.scorer import score_response, score_pass_at_k
 
 console = make_console()
+
+RUN_FINGERPRINT_VERSION = 1
+_FINGERPRINT_OMIT_BENCH_KEYS = {"resume", "max_api_cost"}
+_SECRET_KEY_PARTS = ("key", "token", "secret", "password")
 
 
 @dataclass(frozen=True)
@@ -74,6 +79,51 @@ def resolve_api_cost_budget(bench_config: dict, cli_limit: float | None = None) 
     if limit < 0:
         raise ValueError(f"max_api_cost must be non-negative, got {raw_limit!r}")
     return ApiCostBudget(limit=limit)
+
+
+def run_fingerprint(
+    *,
+    model_info: ModelInfo,
+    backend,
+    bench_config: dict,
+    allow_code_exec: bool,
+    judge_model: str | None,
+) -> str:
+    payload = {
+        "version": RUN_FINGERPRINT_VERSION,
+        "model_id": model_info.id,
+        "model_backend_name": getattr(model_info, "backend_name", getattr(backend, "name", "")),
+        "model_details": _sanitize_for_fingerprint(getattr(model_info, "details", {})),
+        "backend_name": getattr(backend, "name", ""),
+        "backend_class": backend.__class__.__name__,
+        "backend_config": _sanitize_for_fingerprint(getattr(backend, "config", {})),
+        "bench_config": _sanitize_for_fingerprint({
+            key: value
+            for key, value in (bench_config or {}).items()
+            if key not in _FINGERPRINT_OMIT_BENCH_KEYS
+        }),
+        "allow_code_exec": bool(allow_code_exec),
+        "judge_model": judge_model or None,
+    }
+    encoded = json.dumps(payload, sort_keys=True, separators=(",", ":"), default=str)
+    return hashlib.sha256(encoded.encode("utf-8")).hexdigest()[:16]
+
+
+def _sanitize_for_fingerprint(value):
+    if isinstance(value, dict):
+        clean = {}
+        for key, item in value.items():
+            key_text = str(key)
+            if any(part in key_text.lower() for part in _SECRET_KEY_PARTS):
+                clean[key_text] = "<redacted>"
+            else:
+                clean[key_text] = _sanitize_for_fingerprint(item)
+        return clean
+    if isinstance(value, list):
+        return [_sanitize_for_fingerprint(item) for item in value]
+    if isinstance(value, tuple):
+        return tuple(_sanitize_for_fingerprint(item) for item in value)
+    return value
 
 
 def load_config(path: str) -> dict:
@@ -379,10 +429,17 @@ def run_model(
     still calling the API with the real model id.
     """
     label = result_label or model_info.id
+    fingerprint = run_fingerprint(
+        model_info=model_info,
+        backend=backend,
+        bench_config=bench_config,
+        allow_code_exec=allow_code_exec,
+        judge_model=judge_model,
+    )
     runner = None
     model_results: list = []
     for task in tasks:
-        key = cache_key(label, task)
+        key = cache_key(label, task, run_fingerprint=fingerprint)
         if key in cached_records:
             console.print(f"  [dim]↩  {task['id']:40s}  (cached — skipped)[/dim]")
             model_results.append(from_record(task, cached_records[key]))
@@ -406,6 +463,7 @@ def run_model(
                 judge_model=judge_model,
             )
             scored["model_id"] = label
+            scored["run_fingerprint"] = fingerprint
             model_results.append(scored)
             print_task_result(scored)
             append_jsonl(scored, jsonl_path)
@@ -461,6 +519,7 @@ def run_model(
                     annotate_pass(scored)
 
         scored["model_id"] = label
+        scored["run_fingerprint"] = fingerprint
         model_results.append(scored)
         print_task_result(scored)
         append_jsonl(scored, jsonl_path)

@@ -33,7 +33,7 @@ run cost reaches the cap.
 | **Tasks** | 118 tasks across math, knowledge, coding, repo-patch, observed agent-loop, agentic, reasoning, writing, summarization, and instruction-following |
 | **Backends** | LM Studio, Ollama, llama.cpp, vLLM, SGLang, TensorRT-LLM, TGI, KTransformers, generic OpenAI-compatible |
 | **Scoring** | 21 scoring modes, including exact/numeric/regex/JSON checks, code execution, repo-patch execution, observed agent loops, workflow traces, pass@k, logprob choice, LLM judge, and rubric judge |
-| **Reproducibility** | Task version/hash tracking, release/signal metadata, opt-in Hugging Face auto-config, dataset dry-run safety, resumable JSONL logs |
+| **Reproducibility** | Task version/hash tracking, run fingerprints for resume compatibility, release/signal metadata, opt-in Hugging Face auto-config, dataset dry-run safety, resumable JSONL logs |
 | **Outputs** | Rich console tables, JSON, CSV, crash-safe JSONL, optional HTML reports, result comparisons, arena ELO JSON |
 | **Hosted cost tracking** | Persists provider-reported prompt/output/reasoning/total tokens and `api_cost` when available; `max_api_cost` / `--max-api-cost` stops before the next uncached task once the cap is reached |
 
@@ -55,7 +55,7 @@ run cost reaches the cap.
 | **Few-shot examples** | Add `few_shot:` to any task YAML to inject conversation history before the prompt |
 | **pass@k coding** | `scoring.type: pass_at_k` can run n samples and estimate pass@k with the unbiased Chen et al. (2021) estimator |
 | **LLM-as-judge** | CoT-then-score protocol — enable with `judge.enabled: true` in config |
-| **Run resumption** | `--resume` continues from an interrupted run, skipping task-version/content-matched results |
+| **Run resumption** | `--resume` continues from an interrupted run, skipping rows that match model, task version/content, and run fingerprint |
 | **Result comparison** | `--compare` diffs saved JSON/JSONL runs, including model-level and task-level score movement |
 | **Arena artifacts** | `--arena` runs pairwise ELO judging and persists leaderboard + match history JSON |
 | **Task versioning** | `metadata.version` in task YAML propagates to JSONL for audit trails |

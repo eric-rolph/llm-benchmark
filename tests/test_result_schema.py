@@ -24,6 +24,7 @@ def _result(**updates):
         "task_id": "t1",
         "model_id": "model-a",
         "backend": "dummy",
+        "run_fingerprint": "abc123",
         "response": "A",
         "error": None,
         "score": 1.0,
@@ -57,7 +58,7 @@ def test_record_round_trip_preserves_scoring_and_metrics():
 
     for field in (
         "model_id", "backend", "score", "passed", "score_detail",
-        "score_std", "tps", "ttft_ms", "total_ms", "prompt_tokens", "completion_tokens",
+        "run_fingerprint", "score_std", "tps", "ttft_ms", "total_ms", "prompt_tokens", "completion_tokens",
         "reasoning_tokens", "total_tokens", "api_cost", "sample_count", "peak_vram_mb", "avg_gpu_util",
     ):
         assert hydrated[field] == result[field], field

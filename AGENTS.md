@@ -70,6 +70,9 @@ Recent signal from hard `agent_loop` probes:
   available. OpenRouter exposes `usage.cost` on chat responses.
 - For `runs_per_task > 1`, usage and `api_cost` should be summed across all
   samples; `sample_count` and `score_std` are persisted for analysis.
+- Resume cache keys include a secret-redacted run fingerprint built from model,
+  backend/config, benchmark generation settings, code-exec mode, and judge
+  model. Changing incompatible run settings should miss cached JSONL rows.
 - `benchmark.max_api_cost` / `--max-api-cost` caps newly executed hosted work
   using accumulated provider-reported `api_cost`; cached resume rows do not
   consume the current run budget.
