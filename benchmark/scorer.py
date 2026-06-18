@@ -372,8 +372,11 @@ def _contains_value(actual, expected) -> bool:
         return _normalize(str(expected)) in _normalize(actual)
     if isinstance(actual, list):
         if isinstance(expected, list):
-            return all(item in actual for item in expected)
-        return expected in actual
+            return all(
+                any(_matches_expected(actual_item, expected_item) for actual_item in actual)
+                for expected_item in expected
+            )
+        return any(_matches_expected(actual_item, expected) for actual_item in actual)
     if isinstance(actual, dict) and isinstance(expected, dict):
         return all(actual.get(k) == v for k, v in expected.items())
     return actual == expected
@@ -788,6 +791,8 @@ def _score_json_schema(response: str, scoring: dict):
       min_items    — minimum array length when root=array (default: 0)
       required_keys — keys that must be present on each item (array) or root (object)
       array_keys   — keys whose values must themselves be arrays (object root only)
+      expected_values — dotted JSON paths with exact/contains/regex expected values
+      expected_items — partial objects that must be present when root=array
     """
     root_type     = scoring.get("root", "object")
     required_keys = scoring.get("required_keys", [])
@@ -838,6 +843,37 @@ def _score_json_schema(response: str, scoring: dict):
             missing = [k for k in required_keys if k not in item]
             if missing:
                 item_errors.append(f"Item {idx} missing: {missing}")
+        if item_errors:
+            return 0.0, "; ".join(item_errors[:3])
+
+    value_errors = []
+    for path, expected in scoring.get("expected_values", {}).items():
+        actual = _get_path(data, str(path))
+        if not _matches_expected(actual, expected):
+            got = None if actual is _MISSING else actual
+            value_errors.append(f"{path} expected {expected!r}, got {got!r}")
+    if value_errors:
+        return 0.0, "; ".join(value_errors[:3])
+
+    expected_items = scoring.get("expected_items", [])
+    if expected_items:
+        if not isinstance(data, list):
+            return 0.0, "expected_items requires JSON array root"
+        item_errors = []
+        for expected in expected_items:
+            if not isinstance(expected, dict):
+                item_errors.append(f"expected item is not an object: {expected!r}")
+                continue
+            found = any(
+                isinstance(item, dict)
+                and all(
+                    _matches_expected(item.get(key, _MISSING), value)
+                    for key, value in expected.items()
+                )
+                for item in data
+            )
+            if not found:
+                item_errors.append(f"missing expected item: {expected!r}")
         if item_errors:
             return 0.0, "; ".join(item_errors[:3])
 

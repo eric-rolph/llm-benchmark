@@ -108,6 +108,44 @@ scoring:
   keys: [name, age, email]
 ```
 
+### `json_schema`
+Extracts a JSON object or array from the response and checks lightweight schema
+rules plus optional semantic expectations.
+
+```yaml
+scoring:
+  type: json_schema
+  root: array
+  min_items: 2
+  required_keys: [name, email]
+  expected_items:
+    - name: Sarah Chen
+      email: sarah.chen@techcorp.com
+```
+
+For object roots, use `array_keys` to require fields that must be arrays and
+`expected_values` to check dotted JSON paths. Expected values are exact by
+default; use `{contains: ...}` for string/list containment or `{regex: ...}` for
+case-insensitive regex matching. List containment can include nested matchers,
+which keeps array expectations order-independent.
+
+```yaml
+scoring:
+  type: json_schema
+  root: object
+  required_keys: [title, attendees]
+  array_keys: [attendees, action_items]
+  expected_values:
+    title:
+      contains: Product review
+    attendees:
+      contains: [Alice, Bob]
+    action_items:
+      contains:
+        - regex: roadmap|slides
+        - regex: staging
+```
+
 ### `line_count`
 Counts non-empty lines in the response and checks against expected count.
 
