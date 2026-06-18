@@ -156,6 +156,7 @@ def test_agent_loop_executes_tools_and_scores_hidden_tests(tmp_path):
         "run_tests",
         "final",
     ]
+    assert "tools" not in client.requests[0]
     assert "def mean" in client.requests[1]["messages"][-1]["content"]
 
 
@@ -289,6 +290,31 @@ def test_agent_loop_reads_native_tool_call_when_content_is_empty(tmp_path):
 
     assert result["execution_trace"]["tool_calls"][0]["tool"] == "list_files"
     assert result["execution_trace"]["tool_calls"][0]["args"] == {"path": "."}
+
+
+def test_agent_loop_sends_native_tool_schemas_when_enabled(tmp_path):
+    task = _task(tmp_path, max_steps=2)
+    client = FakeClient([
+        {
+            "content": "   ",
+            "tool_calls": [{"name": "list_files", "arguments": '{"path": "."}'}],
+        },
+        '{"tool": "final", "args": {"summary": "inspected only"}}',
+    ])
+
+    result = run_agent_loop(
+        client=client,
+        model_id="fake-model",
+        task=task,
+        backend_name="fake",
+        bench_config={"temperature": 0.0, "timeout": 30, "agent_loop_native_tools": True},
+    )
+
+    request = client.requests[0]
+    tool_names = {tool["function"]["name"] for tool in request["tools"]}
+    assert tool_names == {"list_files", "read_file", "write_file", "run_tests", "final"}
+    assert request["tool_choice"] == "auto"
+    assert result["execution_trace"]["tool_calls"][0]["tool"] == "list_files"
 
 
 def test_agent_loop_counts_nonstream_reasoning_tokens(tmp_path):

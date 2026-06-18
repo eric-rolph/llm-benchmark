@@ -67,6 +67,20 @@ class FakeResponsesClient:
         return self._response
 
 
+class FakeAgentLoopClient:
+    def __init__(self, responses):
+        self._responses = list(responses)
+        self.kwargs = None
+        self.chat = SimpleNamespace(completions=SimpleNamespace(create=self._create))
+
+    def _create(self, **kwargs):
+        self.kwargs = kwargs
+        text = self._responses.pop(0)
+        message = SimpleNamespace(content=text)
+        usage = SimpleNamespace(completion_tokens=len(text.split()))
+        return SimpleNamespace(choices=[SimpleNamespace(message=message)], usage=usage)
+
+
 class FailingClient:
     def __init__(self, exc):
         self.chat = SimpleNamespace(
@@ -206,6 +220,31 @@ def test_backend_extra_body_reaches_request_kwargs():
     assert client.kwargs["stream_options"] == {"include_usage": True}
     assert client.kwargs["extra_body"]["think"] is True
     assert "think" not in client.kwargs  # never a top-level kwarg
+
+
+def test_agent_loop_chat_path_uses_backend_extra_body(tmp_path):
+    fixture = tmp_path / "fixture"
+    tests = fixture / "tests"
+    tests.mkdir(parents=True)
+    (tests / "test_visible.py").write_text(
+        "def test_visible():\n"
+        "    assert True\n",
+        encoding="utf-8",
+    )
+    task = _task(scoring={
+        "type": "agent_loop",
+        "repo_fixture": str(fixture),
+        "test_command": ["{python}", "-m", "pytest", "-q"],
+        "max_steps": 1,
+    })
+    backend = FakeBackend(extra_params={"extra_body": {"reasoning": {"max_tokens": 512}}})
+    client = FakeAgentLoopClient(['{"tool": "final", "args": {"summary": "done"}}'])
+    runner = ModelRunner(backend, "openrouter/model", {"timeout": 30}, client=client)
+
+    result = runner._run_once(task)
+
+    assert result["error"] is None
+    assert client.kwargs["extra_body"] == {"reasoning": {"max_tokens": 512}}
 
 
 def test_api_error_returns_error_result_not_exception():

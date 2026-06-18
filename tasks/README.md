@@ -247,6 +247,11 @@ Available tools: `list_files`, `read_file`, `write_file`, `run_tests`, and `fina
 `write_file` requires complete file contents. `run_tests` runs visible tests only;
 hidden tests are injected after `final`.
 
+When `benchmark.agent_loop_native_tools: true` or scoring `native_tools: true`
+is set, Chat Completions requests also include native function schemas for the
+same five tools. Text JSON/function-call actions remain accepted for local
+models and providers that do not use native tool calls.
+
 Simple function-call syntax is also accepted:
 
 ```text

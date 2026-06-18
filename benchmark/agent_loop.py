@@ -1,6 +1,7 @@
 """Observed agent-loop execution for local repo development tasks."""
 from __future__ import annotations
 
+from copy import deepcopy
 import json
 import re
 import shutil
@@ -43,6 +44,84 @@ Use relative paths only. Hidden tests are not visible during the loop."""
 
 _ALLOWED_TOOLS = {"list_files", "read_file", "write_file", "run_tests", "final"}
 
+_AGENT_TOOL_SCHEMAS = [
+    {
+        "type": "function",
+        "function": {
+            "name": "list_files",
+            "description": "List files under a relative directory in the workspace.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "path": {
+                        "type": "string",
+                        "description": "Relative directory path. Use . for the workspace root.",
+                    },
+                },
+                "additionalProperties": False,
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "read_file",
+            "description": "Read a UTF-8 text file from a relative workspace path.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "path": {"type": "string", "description": "Relative file path to read."},
+                },
+                "required": ["path"],
+                "additionalProperties": False,
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "write_file",
+            "description": "Replace a relative workspace file with complete UTF-8 contents.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "path": {"type": "string", "description": "Relative file path to write."},
+                    "content": {"type": "string", "description": "Complete replacement file contents."},
+                },
+                "required": ["path", "content"],
+                "additionalProperties": False,
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "run_tests",
+            "description": "Run the visible test command in the workspace.",
+            "parameters": {
+                "type": "object",
+                "properties": {},
+                "additionalProperties": False,
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "final",
+            "description": "Finish the loop when the workspace is ready for hidden tests.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "summary": {"type": "string", "description": "Short summary of the completed fix."},
+                },
+                "required": ["summary"],
+                "additionalProperties": False,
+            },
+        },
+    },
+]
+
 
 def run_agent_loop(
     *,
@@ -53,6 +132,7 @@ def run_agent_loop(
     bench_config: dict,
     use_responses_api: bool = False,
     responses_params: dict | None = None,
+    chat_params: dict | None = None,
 ) -> dict:
     """Run an observed tool-use loop against a copied fixture repo."""
     scoring = task.get("scoring", {})
@@ -107,6 +187,7 @@ def run_agent_loop(
                     bench_config,
                     use_responses_api=use_responses_api,
                     responses_params=responses_params or {},
+                    chat_params=chat_params or {},
                 )
             except Exception as exc:
                 return _finish_result(
@@ -206,6 +287,7 @@ def _call_model(
     *,
     use_responses_api: bool = False,
     responses_params: dict | None = None,
+    chat_params: dict | None = None,
 ) -> tuple[str, dict]:
     if use_responses_api:
         response = client.responses.create(
@@ -217,12 +299,14 @@ def _call_model(
         return response_output_text(response), response_usage_metadata(response)
 
     response = client.chat.completions.create(
-        model=model_id,
-        messages=messages,
-        temperature=task.get("temperature", bench_config.get("temperature", 0.0)),
-        max_tokens=int(scoring.get("action_max_tokens", min(bench_config.get("max_tokens", 4096), 2048))),
-        stream=False,
-        timeout=bench_config.get("timeout", 180),
+        **_chat_completion_kwargs(
+            model_id,
+            messages,
+            task,
+            scoring,
+            bench_config,
+            chat_params or {},
+        )
     )
     message = response.choices[0].message
     content = _first_nonblank(
@@ -234,6 +318,43 @@ def _call_model(
     )
     usage = getattr(response, "usage", None)
     return content, usage_metadata(usage)
+
+
+def _chat_completion_kwargs(
+    model_id: str,
+    messages: list[dict],
+    task: dict,
+    scoring: dict,
+    bench_config: dict,
+    chat_params: dict,
+) -> dict:
+    kwargs = {
+        "model": model_id,
+        "messages": messages,
+        "temperature": task.get("temperature", bench_config.get("temperature", 0.0)),
+        "max_tokens": int(
+            scoring.get("action_max_tokens", min(bench_config.get("max_tokens", 4096), 2048))
+        ),
+        "stream": False,
+        "timeout": bench_config.get("timeout", 180),
+    }
+    kwargs.update(chat_params)
+    if _native_tools_enabled(task, scoring, bench_config):
+        kwargs["tools"] = _agent_tool_schemas()
+        kwargs["tool_choice"] = "auto"
+    return kwargs
+
+
+def _native_tools_enabled(task: dict, scoring: dict, bench_config: dict) -> bool:
+    if "native_tools" in scoring:
+        return bool(scoring["native_tools"])
+    if "agent_loop_native_tools" in task:
+        return bool(task["agent_loop_native_tools"])
+    return bool(bench_config.get("agent_loop_native_tools", False))
+
+
+def _agent_tool_schemas() -> list[dict]:
+    return deepcopy(_AGENT_TOOL_SCHEMAS)
 
 
 def _first_nonblank(*values) -> str:

@@ -347,6 +347,7 @@ class ModelRunner:
                 bench_config=self.bench,
                 use_responses_api=self._use_responses_api(task),
                 responses_params=self._responses_params(task),
+                chat_params=self.backend.get_extra_chat_params(task),
             )
         if scoring_type == "logprob_choice":
             return self._run_once_logprobs(task)

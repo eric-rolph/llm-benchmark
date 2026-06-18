@@ -49,6 +49,9 @@ Keep paid retries narrow. Prefer retrying only affected model/task pairs after
 harness changes, and use a fresh output directory when `resume: true` could
 reuse known-bad rows. The profile sets `benchmark.max_api_cost: 5.00`; override
 with `--max-api-cost USD` only for intentional larger runs.
+The profile also sets `benchmark.agent_loop_native_tools: true`, so OpenRouter
+Chat Completions providers receive native function schemas for the five
+`agent_loop` tools.
 
 Recent signal from hard `agent_loop` probes:
 
@@ -63,6 +66,9 @@ Recent signal from hard `agent_loop` probes:
 - `benchmark/agent_loop.py` accepts JSON actions, function-call syntax,
   summary-only final JSON, OpenRouter/Kimi native `tool_calls`, Kimi tool-call
   section markup, and reasoning-only fields.
+- `benchmark.agent_loop_native_tools: true` adds Chat Completions function
+  schemas for `list_files`, `read_file`, `write_file`, `run_tests`, and
+  `final`; the default remains the text-action parser for local compatibility.
 - Non-stream agent-loop runs should count
   `usage.completion_tokens_details.reasoning_tokens` when present.
 - Hosted runs should preserve `prompt_tokens`, `completion_tokens`,

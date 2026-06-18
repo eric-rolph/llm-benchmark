@@ -51,7 +51,7 @@ run cost reaches the cap.
 | **21 scoring types** | numeric, exact, contains, multi_contains, fuzzy_match, regex, json_keys, json_schema, line_count, code_exec, repo_patch, agent_loop, word_count, contains_n, not_contains, ends_with, logprob_choice, workflow_trace, pass_at_k, llm_judge, rubric_judge |
 | **Workflow trace scoring** | `workflow_trace` grades ordered tool-call traces, required args, and optional replayed mock state |
 | **Repo-patch scoring** | `repo_patch` copies a local fixture repo, applies model file edits or unified diffs, rejects harness-control edits, injects hidden tests, and runs the configured test command |
-| **Observed agent-loop scoring** | `agent_loop` lets the model inspect/read/write/run tests through JSON actions, rejects harness-control writes, records the transcript, then injects hidden tests after `final` |
+| **Observed agent-loop scoring** | `agent_loop` lets the model inspect/read/write/run tests through text or native Chat Completions tool actions, rejects harness-control writes, records the transcript, then injects hidden tests after `final` |
 | **Few-shot examples** | Add `few_shot:` to any task YAML to inject conversation history before the prompt |
 | **pass@k coding** | `scoring.type: pass_at_k` can run n samples and estimate pass@k with the unbiased Chen et al. (2021) estimator |
 | **LLM-as-judge** | CoT-then-score protocol — enable with `judge.enabled: true` in config |
@@ -201,11 +201,12 @@ validation: Claude Opus 4.7, GLM 5.2, Gemini 3.5 Flash, Kimi K2.6, Qwen 3.7
 Max, and MiniMax M3. It uses `runs_per_task: 1` and `resume: true` to keep
 cost bounded while preserving crash-safe JSONL output, and sets
 `max_api_cost: 5.00` as a conservative default cap for newly executed tasks.
-Override it with `--max-api-cost USD` when you intentionally want a larger or
-smaller run. The profile loads `.secrets/openrouter.env` when present, and
-`.secrets/` is ignored by git. For a single-model OpenRouter thinking-budget
-run, set backend or task-level `extra_body`, for example
-`reasoning.max_tokens: 512`.
+It also sets `agent_loop_native_tools: true` so Chat Completions providers see
+real function schemas instead of only the text-action prompt. Override the cost
+cap with `--max-api-cost USD` when you intentionally want a larger or smaller
+run. The profile loads `.secrets/openrouter.env` when present, and `.secrets/`
+is ignored by git. For a single-model OpenRouter thinking-budget run, set
+backend or task-level `extra_body`, for example `reasoning.max_tokens: 512`.
 
 ---
 
@@ -288,7 +289,7 @@ llm-bench --dry-run
 | `line_count` | Non-empty line count equals `count` |
 | `code_exec` | Generated code block executes and prints `PASS` (needs `--allow-code-exec`) |
 | `repo_patch` | Model diff/file edits are applied to a fixture repo and pass visible + hidden tests (needs `--allow-code-exec`) |
-| `agent_loop` | Model uses observed JSON tools against a fixture repo and final workspace passes hidden tests (needs `--allow-code-exec`) |
+| `agent_loop` | Model uses observed text or native Chat Completions tools against a fixture repo and final workspace passes hidden tests (needs `--allow-code-exec`) |
 | `logprob_choice` | Highest-probability one-token choice matches `answer`/`value` |
 | `workflow_trace` | JSON `tool_calls`, required args, and final or replayed `state` satisfy deterministic checks |
 | `pass_at_k` | Estimates pass@k over `n`/`samples` independent attempts using `inner_type` scoring |

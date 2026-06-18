@@ -44,6 +44,7 @@ benchmark:
   runs_per_task: 1
   resume: true
   max_api_cost: 5.00
+  agent_loop_native_tools: true
   hf_auto_config: false
 
 judge:
