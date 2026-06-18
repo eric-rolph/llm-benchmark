@@ -1,7 +1,7 @@
 # LLM Benchmark Suite
 
 ![Python](https://img.shields.io/badge/python-3.11%2B-blue)
-![Tasks](https://img.shields.io/badge/tasks-118-green)
+![Tasks](https://img.shields.io/badge/tasks-119-green)
 ![Backends](https://img.shields.io/badge/backends-9-orange)
 ![License](https://img.shields.io/badge/license-MIT-lightgrey)
 
@@ -9,7 +9,7 @@ Local-first, reproducible benchmarking for LLMs you run yourself.
 
 `llm-benchmark` runs deterministic task suites against local and OpenAI-compatible inference servers, then writes comparison-friendly JSON, JSONL, CSV, and optional HTML reports. It supports **LM Studio, Ollama, llama.cpp, vLLM, SGLang, TensorRT-LLM, TGI, KTransformers, and generic OpenAI-compatible backends** with automatic model discovery.
 
-Current state: **118 tasks**, **10 scored categories**, **21 scoring modes**, crash-safe resume, pass@k, deterministic workflow-trace checks, repo-patch execution, observed agent-loop execution, LLM/rubric judging, result diffs, and pairwise arena mode with persisted ELO artifacts.
+Current state: **119 tasks**, **10 scored categories**, **21 scoring modes**, crash-safe resume, pass@k, deterministic workflow-trace checks, repo-patch execution, observed agent-loop execution, LLM/rubric judging, result diffs, and pairwise arena mode with persisted ELO artifacts.
 
 ---
 
@@ -30,7 +30,7 @@ run cost reaches the cap.
 
 | Area | Current state |
 |---|---|
-| **Tasks** | 118 tasks across math, knowledge, coding, repo-patch, observed agent-loop, agentic, reasoning, writing, summarization, and instruction-following |
+| **Tasks** | 119 tasks across math, knowledge, coding, repo-patch, observed agent-loop, agentic, reasoning, writing, summarization, and instruction-following |
 | **Backends** | LM Studio, Ollama, llama.cpp, vLLM, SGLang, TensorRT-LLM, TGI, KTransformers, generic OpenAI-compatible |
 | **Scoring** | 21 scoring modes, including exact/numeric/regex/JSON checks, code execution, repo-patch execution, observed agent loops, workflow traces, pass@k, logprob choice, LLM judge, and rubric judge |
 | **Reproducibility** | Task version/hash tracking, run fingerprints for resume compatibility, release/signal metadata, opt-in Hugging Face auto-config, dataset dry-run safety, resumable JSONL logs |
@@ -47,11 +47,11 @@ run cost reaches the cap.
 | **Auto-discovery** | Probes enabled backends, enumerates all available models |
 | **HF Auto-Config** | Opt-in fetch of Hugging Face `generation_config.json` parameters for tested models |
 | **Thinking model support** | Qwen3, DeepSeek-R1 — reasoning tokens captured, clean text scored |
-| **118 tasks, 10 categories** | Math, reasoning, coding, repo-patch, observed agent-loop, agentic, knowledge, writing, summarization, instruction-following, including vision-language tasks folded into reasoning/writing |
+| **119 tasks, 10 categories** | Math, reasoning, coding, repo-patch, observed agent-loop, agentic, knowledge, writing, summarization, instruction-following, including vision-language tasks folded into reasoning/writing |
 | **21 scoring types** | numeric, exact, contains, multi_contains, fuzzy_match, regex, json_keys, json_schema, line_count, code_exec, repo_patch, agent_loop, word_count, contains_n, not_contains, ends_with, logprob_choice, workflow_trace, pass_at_k, llm_judge, rubric_judge |
 | **Workflow trace scoring** | `workflow_trace` grades ordered tool-call traces, required args, and optional replayed mock state |
 | **Repo-patch scoring** | `repo_patch` copies a local fixture repo, applies model file edits or unified diffs, rejects harness-control edits, injects hidden tests, and runs the configured test command |
-| **Observed agent-loop scoring** | `agent_loop` lets the model inspect/read/write/run tests through text or native Chat Completions tool actions, rejects harness-control writes, records the transcript, then injects hidden tests after `final` |
+| **Observed agent-loop scoring** | `agent_loop` lets the model inspect/read/write/run tests through text, native Chat Completions tools, or native Responses API function calls, rejects harness-control writes, records the transcript and progress milestones, then injects hidden tests after `final` |
 | **Few-shot examples** | Add `few_shot:` to any task YAML to inject conversation history before the prompt |
 | **pass@k coding** | `scoring.type: pass_at_k` can run n samples and estimate pass@k with the unbiased Chen et al. (2021) estimator |
 | **LLM-as-judge** | CoT-then-score protocol — enable with `judge.enabled: true` in config |
@@ -160,6 +160,9 @@ backends:
 
 models:
   - "gpt-5.5"
+
+benchmark:
+  agent_loop_native_tools: true
 ```
 
 Set the key with either `LLM_BENCH_GENERIC_OPENAI_API_KEY` or, for
@@ -172,8 +175,10 @@ python .\run.py --backend generic_openai --model "gpt-5.5" --category agent_loop
 
 `api: "responses"` routes requests through `client.responses.create`, which is
 the preferred path for GPT-5.5 reasoning and multi-turn/tool-style workflows.
-Set `reasoning_effort` per backend or per task when you want a low/medium/high
-comparison against local models.
+For `agent_loop`, set `agent_loop_native_tools: true` to expose the benchmark's
+five repo tools as native Responses API function tools instead of relying only
+on text JSON actions. Set `reasoning_effort` per backend or per task when you
+want a low/medium/high comparison against local models.
 
 The same result JSON/CSV files can be compared against local runs with
 `--compare`, so GPT-class models and smaller local models share the same
@@ -202,18 +207,21 @@ Max, and MiniMax M3. It uses `runs_per_task: 1` and `resume: true` to keep
 cost bounded while preserving crash-safe JSONL output, and sets
 `max_api_cost: 5.00` as a conservative default cap for newly executed tasks.
 It also sets `agent_loop_native_tools: true` so Chat Completions providers see
-real function schemas instead of only the text-action prompt. Override the cost
-cap with `--max-api-cost USD` when you intentionally want a larger or smaller
-run. The profile loads `.secrets/openrouter.env` when present, and `.secrets/`
-is ignored by git. For a single-model OpenRouter thinking-budget run, set
-backend or task-level `extra_body`, for example `reasoning.max_tokens: 512`.
+real function schemas instead of only the text-action prompt. Each `agent_loop`
+row keeps the binary hidden-test `score` and separate progress diagnostics:
+`agent_loop_progress_score`, passed/total milestone counts, and
+`agent_loop_termination`. Override the cost cap with `--max-api-cost USD` when
+you intentionally want a larger or smaller run. The profile loads
+`.secrets/openrouter.env` when present, and `.secrets/` is ignored by git. For
+a single-model OpenRouter thinking-budget run, set backend or task-level
+`extra_body`, for example `reasoning.max_tokens: 512`.
 
 ---
 
 ## All Commands
 
 ```
-llm-bench                           # auto-discover + run all 118 tasks
+llm-bench                           # auto-discover + run all 119 tasks
 llm-bench --discover                # probe backends, list models, exit
 llm-bench --dry-run                 # validate task files + check backends, no inference
 llm-bench --model "qwen3:8b"        # single model (all categories)
@@ -260,13 +268,13 @@ llm-bench --dry-run
 | `knowledge` | 18 | `exact` / `contains` / `numeric` |
 | `coding` | 18 | `code_exec` / `pass_at_k` — runs generated Python, looks for `PASS` in stdout |
 | `repo_patch` | 3 | `repo_patch` — applies model edits to fixture repos, injects hidden tests, runs tests |
-| `agent_loop` | 5 | `agent_loop` — observed JSON tool loop over fixture repos, visible tests during loop, hidden tests after final |
+| `agent_loop` | 6 | `agent_loop` — observed JSON tool loop over fixture repos, visible tests during loop, hidden tests after final |
 | `agentic` | 11 | `code_exec` / `json_schema` / `rubric_judge` / `workflow_trace` |
 | `reasoning` | 15 | `contains` / `exact` / `fuzzy_match` / `word_count` / `llm_judge` |
 | `writing` | 13 | `line_count` / `regex` / `word_count` |
 | `summarization` | 10 | `contains` / `line_count` / `regex` |
 | `instruction_following` | 15 | `exact` / `contains` / `word_count` / `contains_n` / `not_contains` / `ends_with` |
-| **Total** | **118** | |
+| **Total** | **119** | |
 
 ---
 
@@ -289,7 +297,7 @@ llm-bench --dry-run
 | `line_count` | Non-empty line count equals `count` |
 | `code_exec` | Generated code block executes and prints `PASS` (needs `--allow-code-exec`) |
 | `repo_patch` | Model diff/file edits are applied to a fixture repo and pass visible + hidden tests (needs `--allow-code-exec`) |
-| `agent_loop` | Model uses observed text or native Chat Completions tools against a fixture repo and final workspace passes hidden tests (needs `--allow-code-exec`) |
+| `agent_loop` | Model uses observed text, native Chat Completions tools, or native Responses API function calls against a fixture repo and final workspace passes hidden tests; result rows also include progress milestones for valid actions, inspection, writes, visible tests, final, and hidden-test pass (needs `--allow-code-exec`) |
 | `logprob_choice` | Highest-probability one-token choice matches `answer`/`value` |
 | `workflow_trace` | JSON `tool_calls`, required args, and final or replayed `state` satisfy deterministic checks |
 | `pass_at_k` | Estimates pass@k over `n`/`samples` independent attempts using `inner_type` scoring |

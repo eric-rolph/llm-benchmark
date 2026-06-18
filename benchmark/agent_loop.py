@@ -194,6 +194,7 @@ def run_agent_loop(
                     task, backend_name, trace, t_start, completion_tokens,
                     reasoning_tokens, prompt_tokens, total_tokens, api_cost,
                     0.0, f"agent_loop API error: {exc}", final_summary,
+                    termination="api_error",
                 )
             completion_tokens += usage_meta["completion_tokens"]
             reasoning_tokens += usage_meta["reasoning_tokens"]
@@ -213,6 +214,7 @@ def run_agent_loop(
                     task, backend_name, trace, t_start, completion_tokens,
                     reasoning_tokens, prompt_tokens, total_tokens, api_cost,
                     0.0, f"agent_loop: invalid action JSON: {preview}", preview,
+                    termination="invalid_action",
                 )
 
             tool = str(action.get("tool", "")).strip()
@@ -233,15 +235,24 @@ def run_agent_loop(
                     task, backend_name, trace, t_start, completion_tokens,
                     reasoning_tokens, prompt_tokens, total_tokens, api_cost,
                     score, final_detail, final_summary,
+                    termination="final",
                 )
 
             if native_tool_context is not None:
-                messages.append(native_tool_context["assistant_message"])
-                messages.append({
-                    "role": "tool",
-                    "tool_call_id": native_tool_context["tool_call_id"],
-                    "content": observation,
-                })
+                if native_tool_context.get("api") == "responses":
+                    messages.extend(native_tool_context["response_items"])
+                    messages.append({
+                        "type": "function_call_output",
+                        "call_id": native_tool_context["tool_call_id"],
+                        "output": observation,
+                    })
+                else:
+                    messages.append(native_tool_context["assistant_message"])
+                    messages.append({
+                        "role": "tool",
+                        "tool_call_id": native_tool_context["tool_call_id"],
+                        "content": observation,
+                    })
             else:
                 messages.append({"role": "assistant", "content": content})
                 messages.append({"role": "user", "content": f"OBSERVATION:\n{observation}\n\nReturn the next JSON action."})
@@ -251,12 +262,14 @@ def run_agent_loop(
                     task, backend_name, trace, t_start, completion_tokens,
                     reasoning_tokens, prompt_tokens, total_tokens, api_cost,
                     0.0, observation, final_summary,
+                    termination="stopped",
                 )
 
         return _finish_result(
             task, backend_name, trace, t_start, completion_tokens,
             reasoning_tokens, prompt_tokens, total_tokens, api_cost,
             0.0, f"agent_loop: max steps ({max_steps}) reached without final", final_summary,
+            termination="max_steps",
         )
 
 
@@ -299,12 +312,21 @@ def _call_model(
 ) -> tuple[str, dict, dict | None]:
     if use_responses_api:
         response = client.responses.create(
-            model=model_id,
-            input=messages_to_responses_input(messages),
-            timeout=bench_config.get("timeout", 180),
-            **(responses_params or {}),
+            **_responses_kwargs(
+                model_id,
+                messages,
+                task,
+                scoring,
+                bench_config,
+                responses_params or {},
+            )
         )
-        return response_output_text(response), response_usage_metadata(response), None
+        native_tool_context = _response_native_tool_context(response)
+        content = _first_nonblank(
+            response_output_text(response),
+            native_tool_context["action_text"] if native_tool_context else None,
+        )
+        return content, response_usage_metadata(response), native_tool_context
 
     response = client.chat.completions.create(
         **_chat_completion_kwargs(
@@ -366,6 +388,41 @@ def _agent_tool_schemas() -> list[dict]:
     return deepcopy(_AGENT_TOOL_SCHEMAS)
 
 
+def _responses_kwargs(
+    model_id: str,
+    messages: list[dict],
+    task: dict,
+    scoring: dict,
+    bench_config: dict,
+    responses_params: dict,
+) -> dict:
+    kwargs = {
+        "model": model_id,
+        "input": messages_to_responses_input(messages),
+        "timeout": bench_config.get("timeout", 180),
+    }
+    kwargs.update(responses_params)
+    if _native_tools_enabled(task, scoring, bench_config):
+        kwargs["tools"] = _responses_tool_schemas()
+        kwargs["tool_choice"] = "auto"
+        kwargs["parallel_tool_calls"] = False
+    return kwargs
+
+
+def _responses_tool_schemas() -> list[dict]:
+    tools = []
+    for schema in _AGENT_TOOL_SCHEMAS:
+        function = schema["function"]
+        tools.append({
+            "type": "function",
+            "name": function["name"],
+            "description": function.get("description"),
+            "parameters": deepcopy(function.get("parameters") or {}),
+            "strict": False,
+        })
+    return tools
+
+
 def _first_nonblank(*values) -> str:
     for value in values:
         if value is None:
@@ -417,6 +474,42 @@ def _extract_action(text: str) -> dict | None:
 def _message_tool_call_action_text(message) -> str | None:
     context = _message_native_tool_context(message)
     return context["action_text"] if context else None
+
+
+def _response_native_tool_context(response) -> dict | None:
+    for item in getattr(response, "output", None) or []:
+        if _get_attr_or_key(item, "type") != "function_call":
+            continue
+        raw_name = _get_attr_or_key(item, "name")
+        if not raw_name:
+            continue
+        tool = str(raw_name).rsplit(".", 1)[-1]
+        if tool not in _ALLOWED_TOOLS:
+            continue
+        raw_args = _get_attr_or_key(item, "arguments") or "{}"
+        try:
+            args = json.loads(str(raw_args))
+        except json.JSONDecodeError:
+            args = {}
+        if not isinstance(args, dict):
+            args = {}
+        call_id = _get_attr_or_key(item, "call_id") or _get_attr_or_key(item, "id") or f"call_{tool}"
+        response_item = {
+            "type": "function_call",
+            "call_id": str(call_id),
+            "name": str(raw_name),
+            "arguments": str(raw_args),
+        }
+        item_id = _get_attr_or_key(item, "id")
+        if item_id:
+            response_item["id"] = str(item_id)
+        return {
+            "api": "responses",
+            "action_text": json.dumps({"tool": tool, "args": args}),
+            "tool_call_id": str(call_id),
+            "response_items": [response_item],
+        }
+    return None
 
 
 def _message_native_tool_context(message) -> dict | None:
@@ -851,8 +944,12 @@ def _finish_result(
     score: float,
     detail: str,
     summary: str,
+    *,
+    termination: str,
 ) -> dict:
     total_ms = (time.perf_counter() - t_start) * 1000
+    progress = _agent_loop_progress(trace, score, termination)
+    trace["progress"] = progress
     trace["events"].append({
         "event": "agent_loop_complete",
         "elapsed_ms": round(total_ms, 1),
@@ -862,6 +959,8 @@ def _finish_result(
         "total_tokens": total_tokens,
         "api_cost": round(api_cost, 8) if api_cost else None,
         "score": score,
+        "termination": termination,
+        "progress_score": progress["score"],
     })
     return _result(
         task,
@@ -876,7 +975,39 @@ def _finish_result(
         total_tokens=total_tokens,
         api_cost=round(api_cost, 8) if api_cost else None,
         trace=trace,
+        progress=progress,
     )
+
+
+def _agent_loop_progress(trace: dict, hidden_score: float, termination: str) -> dict:
+    calls = trace.get("tool_calls") or []
+    checks = {
+        "valid_action": bool(calls),
+        "inspected_workspace": any(
+            call.get("ok") is True and call.get("tool") in {"list_files", "read_file"}
+            for call in calls
+        ),
+        "wrote_file": any(
+            call.get("ok") is True and call.get("tool") == "write_file"
+            for call in calls
+        ),
+        "ran_visible_tests": any(call.get("tool") == "run_tests" for call in calls),
+        "visible_tests_passed": any(
+            call.get("ok") is True and call.get("tool") == "run_tests"
+            for call in calls
+        ),
+        "final_called": any(call.get("tool") == "final" for call in calls),
+        "hidden_tests_passed": hidden_score >= 1.0,
+    }
+    passed = sum(1 for ok in checks.values() if ok)
+    total = len(checks)
+    return {
+        "score": passed / total if total else 0.0,
+        "passed": passed,
+        "total": total,
+        "termination": termination,
+        "checks": checks,
+    }
 
 
 def _result(
@@ -892,7 +1023,9 @@ def _result(
     total_tokens: int = 0,
     api_cost: float | None = None,
     trace: dict | None = None,
+    progress: dict | None = None,
 ) -> dict:
+    progress = progress or (trace or {}).get("progress") or {}
     return {
         "task_id": task["id"],
         "response": response,
@@ -908,6 +1041,10 @@ def _result(
         "backend": backend_name,
         "agent_loop_score": score,
         "agent_loop_detail": detail,
+        "agent_loop_progress_score": progress.get("score"),
+        "agent_loop_progress_passed": progress.get("passed"),
+        "agent_loop_progress_total": progress.get("total"),
+        "agent_loop_termination": progress.get("termination"),
         "execution_trace": trace or {
             "surface": task.get("execution_surface", "observed_agent_loop"),
             "scoring_type": "agent_loop",

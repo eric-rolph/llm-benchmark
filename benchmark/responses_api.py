@@ -8,6 +8,12 @@ def messages_to_responses_input(messages: list[dict]) -> list[dict]:
     """Convert chat-style messages into Responses API input items."""
     items: list[dict] = []
     for message in messages:
+        if isinstance(message, dict) and str(message.get("type") or "") in {
+            "function_call",
+            "function_call_output",
+        }:
+            items.append(dict(message))
+            continue
         role = str(message.get("role") or "user")
         content = message.get("content", "")
         if isinstance(content, str):

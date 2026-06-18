@@ -346,3 +346,106 @@ tasks:
 
                 assert refreshed["call"] == 3
                 assert service.get_product("sku-1", include_archived=True)["call"] == 4
+
+  - id: agent_loop_006_deploy_dependency_planner
+    introduced: 2026-06-18
+    category: agent_loop
+    benchmark_tier: repo_agent
+    difficulty: hard
+    execution_surface: observed_agent_loop
+    source_signal: clawbot-hermes-loop
+    human_minutes_estimate: 20
+    criticisms_addressed:
+      - observed_tool_use_not_self_reported_trace
+      - no_embedded_source_context
+      - multi_file_patch_required
+      - misleading_or_incomplete_visible_tests
+      - visible_tests_during_loop_hidden_tests_after_final
+      - hermetic_temp_workspace
+    description: "Observed agent loop: repair deployment dependency planning"
+    prompt: |
+      You are fixing a small Python repository that plans deployment order from
+      service dependency declarations. The visible tests cover only already
+      sorted happy paths; do not assume they are complete.
+
+      Requirements:
+        1. `parse_services(lines)` ignores blank lines and full-line comments
+           whose first non-space character is `#`.
+        2. Each non-comment line has the form `service: dep1, dep2`; strip
+           whitespace around service names and dependency names. Dependencies
+           are optional.
+        3. Duplicate service declarations raise `ValueError`.
+        4. Unknown dependency names raise `ValueError`.
+        5. Dependency cycles raise `ValueError`, and the message should include
+           at least one service name from the cycle.
+        6. `deployment_order(lines)` returns dependencies before dependents.
+           When several services are ready at once, use alphabetical order.
+        7. `impacted_services(lines, changed)` returns the changed services that
+           exist in the graph plus all transitive dependents, sorted
+           alphabetically.
+
+      Use the available JSON tools to inspect the repo, edit files, run visible
+      tests, and then call `final` when your fix is ready.
+    scoring:
+      type: agent_loop
+      repo_fixture: tasks/fixtures/agent_loop/deploy_dependency_planner
+      test_command: ["{python}", "-m", "pytest", "-q"]
+      max_steps: 12
+      hidden_tests:
+        - path: tests/test_hidden_dependency_planner.py
+          content: |
+            import pytest
+            from deployer.parser import parse_services
+            from deployer.planner import deployment_order, impacted_services
+
+            def test_parser_ignores_comments_and_strips_names():
+                lines = [
+                    "  # deploy graph exported from CI",
+                    "",
+                    " api : db , cache ",
+                    "db:",
+                    " cache : ",
+                ]
+
+                assert parse_services(lines) == {
+                    "api": ["db", "cache"],
+                    "db": [],
+                    "cache": [],
+                }
+
+            def test_duplicate_services_raise_value_error():
+                with pytest.raises(ValueError):
+                    parse_services(["api:", "db:", "api: db"])
+
+            def test_unknown_dependencies_raise_value_error():
+                with pytest.raises(ValueError):
+                    deployment_order(["api: db"])
+
+            def test_cycles_raise_value_error_with_cycle_member_in_message():
+                with pytest.raises(ValueError) as exc:
+                    deployment_order(["api: worker", "worker: api"])
+
+                assert any(name in str(exc.value) for name in {"api", "worker"})
+
+            def test_deployment_order_is_stable_and_dependency_first():
+                lines = [
+                    "web: api, worker",
+                    "api: db",
+                    "worker: db",
+                    "db:",
+                    "cache:",
+                ]
+
+                assert deployment_order(lines) == ["cache", "db", "api", "worker", "web"]
+
+            def test_impacted_services_includes_transitive_dependents():
+                lines = [
+                    "web: api, worker",
+                    "api: db",
+                    "worker: db",
+                    "db:",
+                    "docs:",
+                ]
+
+                assert impacted_services(lines, {"db"}) == ["api", "db", "web", "worker"]
+                assert impacted_services(lines, {"missing"}) == []

@@ -75,9 +75,20 @@ class FakeResponsesClient:
         self.requests.append(deepcopy(kwargs))
         if not self.responses_list:
             raise AssertionError("fake responses client has no response left")
-        output_text = self.responses_list.pop(0)
-        usage = SimpleNamespace(output_tokens=len(output_text.split()))
-        return SimpleNamespace(output_text=output_text, output=[], usage=usage, status="completed")
+        response_item = self.responses_list.pop(0)
+        if isinstance(response_item, dict):
+            output_text = response_item.get("output_text", "")
+            output = [
+                SimpleNamespace(**item)
+                for item in response_item.get("output", [])
+            ]
+            response_id = response_item.get("id", f"resp_{len(self.requests)}")
+        else:
+            output_text = response_item
+            output = []
+            response_id = f"resp_{len(self.requests)}"
+        usage = SimpleNamespace(output_tokens=len(str(output_text).split()))
+        return SimpleNamespace(id=response_id, output_text=output_text, output=output, usage=usage, status="completed")
 
 
 def _task(tmp_path, **scoring_updates):
@@ -184,6 +195,40 @@ def test_agent_loop_reports_max_steps_without_final(tmp_path):
 
     assert result["agent_loop_score"] == 0.0
     assert "max steps" in result["agent_loop_detail"].lower()
+
+
+def test_agent_loop_records_partial_progress_when_hidden_score_is_zero(tmp_path):
+    task = _task(tmp_path, max_steps=2)
+    client = FakeClient([
+        '{"tool": "read_file", "args": {"path": "calc/stats.py"}}',
+        (
+            '{"tool": "write_file", "args": {"path": "calc/stats.py", '
+            '"content": "def mean(values):\\n    return sum(values) / len(values)\\n"}}'
+        ),
+    ])
+
+    result = _run(client, task)
+
+    assert result["agent_loop_score"] == 0.0
+    assert result["agent_loop_progress_score"] == 3 / 7
+    assert result["agent_loop_progress_passed"] == 3
+    assert result["agent_loop_progress_total"] == 7
+    assert result["agent_loop_termination"] == "max_steps"
+    assert result["execution_trace"]["progress"] == {
+        "score": 3 / 7,
+        "passed": 3,
+        "total": 7,
+        "termination": "max_steps",
+        "checks": {
+            "valid_action": True,
+            "inspected_workspace": True,
+            "wrote_file": True,
+            "ran_visible_tests": False,
+            "visible_tests_passed": False,
+            "final_called": False,
+            "hidden_tests_passed": False,
+        },
+    }
 
 
 def test_agent_loop_rejects_unsafe_paths(tmp_path):
@@ -572,3 +617,55 @@ def test_agent_loop_can_use_responses_api_client(tmp_path):
     assert client.requests[0]["reasoning"] == {"effort": "high"}
     assert client.requests[0]["max_output_tokens"] == 12000
     assert client.requests[0]["input"][0]["role"] == "system"
+
+
+def test_agent_loop_uses_native_responses_tool_calls_when_enabled(tmp_path):
+    task = _task(tmp_path, max_steps=2)
+    client = FakeResponsesClient([
+        {
+            "output": [
+                {
+                    "type": "function_call",
+                    "call_id": "call_list",
+                    "name": "list_files",
+                    "arguments": '{"path": "."}',
+                }
+            ],
+        },
+        {
+            "output": [
+                {
+                    "type": "function_call",
+                    "call_id": "call_final",
+                    "name": "final",
+                    "arguments": '{"summary": "inspected only"}',
+                }
+            ],
+        },
+    ])
+
+    result = run_agent_loop(
+        client=client,
+        model_id="gpt-5.5",
+        task=task,
+        backend_name="fake",
+        bench_config={"timeout": 30, "agent_loop_native_tools": True},
+        use_responses_api=True,
+        responses_params={"max_output_tokens": 12000},
+    )
+
+    assert result["execution_trace"]["tool_calls"][0]["tool"] == "list_files"
+    assert result["execution_trace"]["tool_calls"][1]["tool"] == "final"
+    assert client.requests[0]["tools"][0]["type"] == "function"
+    assert client.requests[0]["tools"][0]["name"] == "list_files"
+    assert client.requests[0]["tool_choice"] == "auto"
+    assert client.requests[0]["parallel_tool_calls"] is False
+    assert client.requests[1]["input"][-2] == {
+        "type": "function_call",
+        "call_id": "call_list",
+        "name": "list_files",
+        "arguments": '{"path": "."}',
+    }
+    assert client.requests[1]["input"][-1]["type"] == "function_call_output"
+    assert client.requests[1]["input"][-1]["call_id"] == "call_list"
+    assert "calc/stats.py" in client.requests[1]["input"][-1]["output"]

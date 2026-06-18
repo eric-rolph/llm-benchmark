@@ -108,6 +108,21 @@ def print_task_result(result: dict):
     )
     if score < 1.0 and result.get("score_detail"):
         console.print(f"       [dim italic]{result['score_detail'][:110]}[/dim italic]")
+    progress_detail = _agent_loop_progress_detail(result)
+    if score < 1.0 and progress_detail:
+        console.print(f"       [dim italic]{progress_detail}[/dim italic]")
+
+
+def _agent_loop_progress_detail(result: dict) -> str:
+    passed = result.get("agent_loop_progress_passed")
+    total = result.get("agent_loop_progress_total")
+    if passed is None or total is None:
+        return ""
+    detail = f"progress={passed}/{total}"
+    termination = result.get("agent_loop_termination")
+    if termination:
+        detail += f"; termination={termination}"
+    return detail
 
 
 # ── summary tables ────────────────────────────────────────────────────────────
@@ -447,7 +462,9 @@ def save_results(all_results: dict, output_dir: str):
                     "human_minutes_estimate", "criticisms_addressed", "scoring_type",
                     "score", "score_std", "pass_threshold", "passed", "tps", "ttft_ms", "total_ms",
                     "prompt_tokens", "completion_tokens", "reasoning_tokens", "total_tokens",
-                    "api_cost", "sample_count",
+                    "api_cost", "sample_count", "agent_loop_progress_score",
+                    "agent_loop_progress_passed", "agent_loop_progress_total",
+                    "agent_loop_termination",
                     "score_detail"])
         for model, results in all_results.items():
             for r in results:
@@ -477,6 +494,10 @@ def save_results(all_results: dict, output_dir: str):
                     r.get("total_tokens", ""),
                     r.get("api_cost", ""),
                     r.get("sample_count", ""),
+                    r.get("agent_loop_progress_score", ""),
+                    r.get("agent_loop_progress_passed", ""),
+                    r.get("agent_loop_progress_total", ""),
+                    r.get("agent_loop_termination", ""),
                     r.get("score_detail", ""),
                 ])
     console.print(f"CSV  → [cyan]{csv_path}[/cyan]")

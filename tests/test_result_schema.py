@@ -2,8 +2,10 @@
 tests/test_result_schema.py — benchmark/result.py is the single source of
 the persisted record shape; results must survive the round trip.
 """
+import csv
 import json
 
+from benchmark.reporter import save_results
 from benchmark.result import RESPONSE_PREVIEW_CHARS, from_record, to_record
 
 
@@ -41,6 +43,10 @@ def _result(**updates):
         "total_tokens": 12,
         "api_cost": 0.0042,
         "sample_count": 3,
+        "agent_loop_progress_score": 0.57,
+        "agent_loop_progress_passed": 4,
+        "agent_loop_progress_total": 7,
+        "agent_loop_termination": "max_steps",
         "peak_vram_mb": 2048,
         "avg_gpu_util": 55.0,
         "logprob_detail": None,
@@ -60,6 +66,8 @@ def test_record_round_trip_preserves_scoring_and_metrics():
         "model_id", "backend", "score", "passed", "score_detail",
         "run_fingerprint", "score_std", "tps", "ttft_ms", "total_ms", "prompt_tokens", "completion_tokens",
         "reasoning_tokens", "total_tokens", "api_cost", "sample_count", "peak_vram_mb", "avg_gpu_util",
+        "agent_loop_progress_score", "agent_loop_progress_passed", "agent_loop_progress_total",
+        "agent_loop_termination",
     ):
         assert hydrated[field] == result[field], field
     assert hydrated["response"] == "A"
@@ -93,6 +101,18 @@ def test_response_preview_is_long_enough_to_debug_patch_failures():
 
     assert len(record["response_preview"]) == RESPONSE_PREVIEW_CHARS
     assert RESPONSE_PREVIEW_CHARS >= 4000
+
+
+def test_csv_export_includes_agent_loop_progress_fields(tmp_path):
+    save_results({"model-a": [_result()]}, str(tmp_path))
+
+    csv_path = next(tmp_path.glob("results_*.csv"))
+    row = next(csv.DictReader(csv_path.open(newline="", encoding="utf-8")))
+
+    assert row["agent_loop_progress_score"] == "0.57"
+    assert row["agent_loop_progress_passed"] == "4"
+    assert row["agent_loop_progress_total"] == "7"
+    assert row["agent_loop_termination"] == "max_steps"
 
 
 def test_run_py_shim_still_exposes_main():

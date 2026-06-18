@@ -8,7 +8,7 @@ observed agent-loop workflows.
 
 - Main entry point: `python .\run.py` or installed `llm-bench`.
 - Task files live in `tasks/`; fixture repos live under `tasks/fixtures/`.
-- Current suite size is 118 tasks across 10 categories with 21 scoring modes.
+- Current suite size is 119 tasks across 10 categories with 21 scoring modes.
 - High-value coding surfaces are `coding`, `repo_patch`, `agent_loop`, and
   `agentic`.
 - `agent_loop` tasks execute an observed tool loop over a copied fixture repo:
@@ -55,20 +55,32 @@ Chat Completions providers receive native function schemas for the five
 
 Recent signal from hard `agent_loop` probes:
 
-- Claude Opus 4.7 and Qwen 3.7 Max passed both hard tasks.
-- GLM 5.2 passed TTL cache and failed CSV hidden tests.
-- Kimi K2.6 now executes native OpenRouter tool calls; latest retry passed TTL
-  cache and failed CSV after emitting prose instead of an action.
-- MiniMax M3 still emits prose instead of valid actions on the hard tasks.
+- GPT-5.5 passed both hard tasks through the OpenAI Responses text-action path;
+  future GPT-style reruns should set `agent_loop_native_tools: true` to use the
+  native Responses API function-call path added after that probe.
+- GLM 5.2 passed both hard tasks through OpenRouter Chat Completions.
+- Kimi K2.6 passed TTL cache and failed CSV after emitting prose instead of an
+  action.
+- Claude Opus 4.7, Gemini 3.5 Flash, Qwen 3.7 Max, and MiniMax M3 all failed
+  the two-task slice in the latest run, mostly through tool-protocol or
+  no-final failures rather than proven inability to implement the fixes.
+- Gemma 4 12B Coder passed the medium mean-repair smoke and failed both hard
+  tasks; Gemma 4 12B QAT and base were 0/3 on the same local slice.
 
 ## Harness Notes
 
 - `benchmark/agent_loop.py` accepts JSON actions, function-call syntax,
-  summary-only final JSON, OpenRouter/Kimi native `tool_calls`, Kimi tool-call
-  section markup, and reasoning-only fields.
+  summary-only final JSON, OpenRouter/Kimi native `tool_calls`, native OpenAI
+  Responses API `function_call` items, Kimi tool-call section markup, and
+  reasoning-only fields.
+- Agent-loop rows keep binary hidden-test `score` stable and add
+  `agent_loop_progress_score`, passed/total milestone counts, termination, and
+  `execution_trace.progress` so protocol compliance and implementation progress
+  can be analyzed separately from hidden-test pass/fail.
 - `benchmark.agent_loop_native_tools: true` adds Chat Completions function
-  schemas for `list_files`, `read_file`, `write_file`, `run_tests`, and
-  `final`; the default remains the text-action parser for local compatibility.
+  schemas or Responses API function tools for `list_files`, `read_file`,
+  `write_file`, `run_tests`, and `final`; the default remains the text-action
+  parser for local compatibility.
 - Non-stream agent-loop runs should count
   `usage.completion_tokens_details.reasoning_tokens` when present.
 - Hosted runs should preserve `prompt_tokens`, `completion_tokens`,
